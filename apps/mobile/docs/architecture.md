@@ -24,10 +24,9 @@ are the acceptance walkthrough; breaking one is a regression.
 
 ```
 ┌── Voice ─────────────┐   ┌── Resolution ──────────┐   ┌── Execution ─────────┐
-│ sherpa STT (offline) │──▶│ online:  proxy → LLM   │──▶│ HTTP client + token  │
-│ platform TTS (es-US) │   │          tool-calling  │   │ outbox (SQLite)      │
-└──────────────────────┘   │ offline: local matcher │   └──────────────────────┘
-                           │          over registry │              │
+│ sherpa STT (offline) │──▶│ deterministic matcher  │──▶│ HTTP client + token  │
+│ platform TTS (es-US) │   │ over the registry      │   │ outbox (SQLite)      │
+└──────────────────────┘   │ no model (FR-MC04)     │   └──────────────────────┘
                            └────────────────────────┘              ▼
 ┌── Discovery ─────────────────────────────────────┐    ┌── Backend ───────────┐
 │ GET /v3/api-docs → parse OpenAPI 3.1 → registry  │───▶│ generated Spring Boot│
@@ -38,7 +37,7 @@ are the acceptance walkthrough; breaking one is a regression.
 | Stage | What it is | Decision it carries |
 |---|---|---|
 | Voice | `sherpa_onnx` speech-to-text running fully on device, and the platform TTS engine | STT is the embedded recognizer; the platform recognizer is not used. TTS is platform, locale `es-US`, pinned to a voice with `network_required: 0`. Audio is 16 kHz mono. |
-| Resolution | Turns a transcript into one operation plus its bound values | Online: an LLM offered the registry as a dynamically built tool set, called through the UMLive proxy — no provider key ever reaches the device (`FR-MC01`, `FR-MC01b`). Offline: a deterministic matcher over the cached registry, no model (`FR-MC04`). |
+| Resolution | Turns a transcript into one operation plus its bound values | One deterministic matcher over the registry, no model, used identically with and without network (`FR-MC04`). There is no online branch: `T9`/`T10` were cancelled and the app never calls a model. |
 | Execution | Performs the operation and owns durability | One HTTP client carrying the shared bearer token; every write not acknowledged by the backend is persisted to the outbox before the user is told anything. |
 | Discovery | Builds the registry from the backend's published description | `GET /v3/api-docs`, parse OpenAPI 3.1, derive one operation per path × method, persist to SQLite. The cached registry is the authority when offline (`FR-MA02`–`FR-MA04`). |
 
@@ -58,8 +57,7 @@ field name that the registry does not contain.
 | `openapi/` | OpenAPI document parsing and the document-to-registry derivation. |
 | `net/` | HTTP client, discovery fetch, and reachability decisions. |
 | `voice/` | STT, TTS, model provisioning and extraction, microphone amplitude. |
-| `resolve/` | Online resolver, offline resolver, slot filling, confirmation, and registry-to-tools projection. |
-| `exec/` | Operation executor, error-to-sentence mapping, outbox drain. |
+| `conversation/` | The turn model, the deterministic resolver — the read path in `T12`, slot filling and confirmation in `T13` — the Spanish input vocabulary, and the operation executor. There is no `resolve/` and no `exec/`: `T11` built the loop in one folder and later tasks extend it there. Error-to-sentence mapping and the outbox drain land in `T22`/`T14`. |
 | `presentation/` | Screens, widgets, turn models. It renders state; it never talks to the network or the database directly. |
 
 ## 4. The five outcomes of a turn
@@ -455,3 +453,71 @@ both exist in the same `sherpa-onnx` asr-models release:
 failed hard with `error_language_unavailable` on this handset with the radios on
 *and* off, and does not fall back because its availability flag reports `true`
 (`PRD-MOBILE.md` §10.2).
+
+## 14. Resolution: one deterministic resolver over the registry (T12)
+
+`FR-MC04` was rewritten on 2026-09-20: the local matcher is not the offline
+branch of two, it is *the* resolver. There is no model in this product and no
+online branch to fall back on, so `T9`/`T10` stay cancelled and this is the only
+path an utterance takes.
+
+- **`lib/conversation/deterministic_resolver.dart` is that path.**
+  `ConversationController` hands it one utterance, the registry, the executor
+  and the localizations; it returns one `ResolverOutcome` and reaches nothing
+  else. It is stateless, so nothing leaks between turns, and it is the shipped
+  default of `ConversationController.resolver`.
+- **Folding has exactly one definition.** `lib/core/text_fold.dart` holds
+  `foldText` — lower-case, accents folded to ASCII — and both the parser (§11,
+  recovering `Dirección` from the ASCII route word `direccion`) and the resolver
+  call it. A second copy would let the parser confirm a name the resolver can
+  never match, which surfaces as a silently unresolved utterance.
+- **Matching is on whole folded tokens.** Every contiguous window of the
+  utterance is joined with no separator and compared against the entity's folded
+  name and its `s`/`es`/`ces` plurals, so `clientela` never matches `cliente`
+  while the two spoken words "item pedido" still name `ItemPedido`. Tokens,
+  trigger words, fillers and the noun plural live in
+  `lib/conversation/spanish_language.dart` — the one file that holds Spanish
+  *input* vocabulary and morphology. It is not copy: nothing in it is rendered,
+  which is why it is not in `app_es.arb`.
+- **Intent is classified before anything is called.** A count trigger (the
+  `cuántos` family) is a count; a numeric token is a single-record read *only*
+  if the entity publishes a `get` role; a list trigger (`lista`, `mostrar`,
+  `dame`, `todos`…) or an utterance made only of fillers and the entity's own
+  name is a listing. Everything else is **not understood** — which is why the
+  §5.1 write utterance *"Agregá a Juan Pérez como cliente"* reports that it was
+  not understood instead of answering a create with a listing. The write path is
+  `T13`.
+- **A numeric token never degrades into a listing.** With no `get` role, "cliente
+  3" is not understood, because answering with the whole collection would drop
+  the filter the operator asked for and present that as the answer.
+- **Operations come from roles, never from an assembled URL** (`FR-MA03`):
+  `EntityModel.roleKeys[EntityRole.list]` or `[EntityRole.get]`, looked up with
+  `ApiRegistry.operation`, with the id bound to
+  `ApiOperation.pathParameterNames.first`. A missing role, or a `get` operation
+  that declares no path parameter, is refused rather than patched with a guessed
+  route or parameter name.
+- **The count is computed client-side** from the full collection the backend
+  returned (`FR-ME02`): the generated API publishes no count endpoint and no
+  pagination.
+- **Every failed resolution names what it could not resolve** (`FR-MC04`): no
+  known entity named — and the refusal lists the vocabulary the registry *does*
+  have (`FR-MC07`) — more than one entity named, an intent that was not
+  understood, or a read the backend does not publish. Ambiguity is decided by
+  window position as well as score: a match overlapping the best window is
+  another reading of the same mention, one that sits elsewhere is a second
+  mention the operator actually made. It never guesses.
+- **The answer is one sentence with correct agreement.** The zero form is the UX
+  spec's empty-collection sentence, the singular form names the count with the
+  singular noun because `FR-ME01` calls that case a test case, and the plural
+  form carries the count. The register is impersonal — no tuteo, no voseo — per
+  the app's copy convention, so §5.1's *"Tienes 1 cliente."* is stated as *"Hay 1
+  cliente."*. `pluralizeSpanishNoun` covers the `-ión` family that drops its
+  written accent (`dirección` → `direcciones`); it is a morphology rule, not a
+  dictionary, and its remaining limits are stated in the file. Rendering a
+  collection as cards is `T21`; `T12` answers with the sentence and the addressed
+  operation only.
+- **Every resolve logs one `[umlive][resolver]` line** with `result`, `intent`,
+  `entity`, `operation` and `count`/`reason`, and **never the utterance text** —
+  only its length, the discipline `T11` established. Eleven turns exercised on
+  `TFY-LX3` make up the evidence, and the log line and the written reply agreed
+  on every one of them.

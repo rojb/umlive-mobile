@@ -1,13 +1,17 @@
-/// The seam `T12` (read path) and `T13` (write path) fill in.
+/// The seam every resolution path implements.
 ///
 /// `ConversationController` calls exactly this interface to turn one
-/// utterance into a reply; it never resolves anything itself. Splitting it out
-/// this way means `T11` can wire the whole conversation loop — capture,
-/// turns, the executor — before any resolution logic exists, and `T12`/`T13`
-/// can be dropped in later without touching the controller again.
+/// utterance into a reply; it never resolves anything itself. `T11` wired the
+/// whole conversation loop — capture, turns, the executor — against it before
+/// any resolution logic existed, so a resolver could be dropped in without
+/// touching the controller again.
+///
+/// The shipped implementation is `DeterministicOperationResolver`
+/// (`deterministic_resolver.dart`): the deterministic read path of `T12`,
+/// which `T13` extends with the write path. There is no placeholder
+/// implementation left, and no second resolver.
 library;
 
-import '../core/log.dart';
 import '../l10n/app_localizations.dart';
 import '../openapi/registry.dart';
 import 'operation_executor.dart';
@@ -30,8 +34,11 @@ class ResolverOutcome {
   final TurnStatus status;
 
   /// The evidence of the operation call this resolution made, when it made
-  /// one. Null for every outcome that never reached the executor — which, for
-  /// [UnimplementedOperationResolver], is always.
+  /// one. Null for every outcome that never reached the executor — no entity
+  /// matched, more than one matched, the intent was not understood, or the
+  /// backend publishes no read operation for the entity. A call that ran and
+  /// failed still carries its evidence, because the call is what `T23` has to
+  /// show and `T22` has to explain.
   final OperationEvidence? evidence;
 }
 
@@ -50,36 +57,4 @@ abstract class OperationResolver {
     required OperationExecutor executor,
     required AppLocalizations l10n,
   });
-}
-
-/// The honest placeholder until `T12`/`T13` land.
-///
-/// It never guesses an operation, never invents a matched entity and never
-/// fakes a reply: it names, in the conversation itself, that resolution has
-/// not been built yet. `FR-MC04` requires an unresolved utterance to say what
-/// it could not understand; this implementation understands nothing yet, and
-/// says exactly that rather than something that only sounds like an answer.
-class UnimplementedOperationResolver implements OperationResolver {
-  const UnimplementedOperationResolver();
-
-  @override
-  Future<ResolverOutcome> resolve({
-    required String utterance,
-    required ApiRegistry registry,
-    required OperationExecutor executor,
-    required AppLocalizations l10n,
-  }) async {
-    // The utterance's content is never logged — only that one arrived and how
-    // long it was — the same discipline `log.dart` already applies to the
-    // bearer token.
-    logEvent('resolver', {
-      'result': 'unimplemented',
-      'utteranceLength': utterance.length,
-      'entities': registry.entities.length,
-    });
-    return ResolverOutcome(
-      replyText: l10n.conversationResolverNotImplemented,
-      status: TurnStatus.failed,
-    );
-  }
 }

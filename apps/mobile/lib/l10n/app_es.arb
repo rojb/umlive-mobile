@@ -461,9 +461,80 @@
     "description": "T11: ConversationController's own guard when an utterance is submitted with no discovered registry available. Should not normally be reachable, since capture is only offered while a workable registry exists, but the check is real rather than assumed."
   },
 
-  "conversationResolverNotImplemented": "Todavía no puedo resolver esa indicación: la interpretación de comandos por voz no está implementada en esta versión.",
-  "@conversationResolverNotImplemented": {
-    "description": "T11: UnimplementedOperationResolver's honest placeholder reply, used until T12 (read path) and T13 (write path) supply real resolution. Names plainly that resolution does not exist yet rather than guessing an operation or fabricating an answer (FR-MC04). Neutral register, no tuteo or voseo."
+  "conversationCountAnswer": "{count, plural, =0{No hay {entities} todavía.} =1{Hay 1 {entity}.} other{Hay {count} {entities}.}}",
+  "@conversationCountAnswer": {
+    "description": "T12: the answer to every successful read, in the three number-agreement forms the UX spec asks for. The zero branch is the UX spec's empty-collection sentence. The singular branch names the count with the singular noun because FR-ME01 calls that case an explicit test case, so it is a form the app is measured on rather than a fallback. The register is impersonal because the app's copy convention avoids tuteo and voseo (the PRD §5.1 form 'Tienes 1 cliente.' states the same count and the same agreement in the second person). T20 widens answer generation to the remaining outcomes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "entity": {
+        "type": "String"
+      },
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationNotUnderstoodNoEntity": "No reconocí ninguna entidad conocida en esa indicación. Conozco: {entities}.",
+  "@conversationNotUnderstoodNoEntity": {
+    "description": "T12: refusal when no entity the registry knows was named. The vocabulary comes from the registry (FR-MC07), which is why it can name what it does know instead of only what it missed. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationNotUnderstoodAmbiguous": "Esa indicación nombra más de una entidad: {entities}. No puedo decidir cuál corresponde.",
+  "@conversationNotUnderstoodAmbiguous": {
+    "description": "T12: refusal when more than one known entity matches the utterance equally well. It names both and stops, because picking one would be a guess presented as an answer. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationNotUnderstoodIntent": "Entendí que la indicación se refiere a {entity}, pero no entendí qué hacer con esa entidad.",
+  "@conversationNotUnderstoodIntent": {
+    "description": "T12: refusal when the entity is known and the request is not. FR-MC04 asks for exactly this: it names specifically what was not understood, so the operator can rephrase. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationNotUnderstoodNoReadOperation": "El backend no publica ninguna operación para leer {entity}, así que no puedo responder con eso.",
+  "@conversationNotUnderstoodNoReadOperation": {
+    "description": "T12: refusal when the entity has no operation to read it — a missing list or get role, or a get operation that declares no path parameter name for the id. No route is ever guessed to fill the gap. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationReadFailed": "No se pudo leer {entity}: el backend no respondió correctamente.",
+  "@conversationReadFailed": {
+    "description": "T12: the failed read, for a call that ran and did not come back 2xx. It states only that the read failed, without inventing a cause: T22 replaces this with sentences derived from the status and the keys of the generated errors map. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationReadUnreadable": "El backend respondió a la consulta de {entity}, pero el contenido no tiene la forma esperada.",
+  "@conversationReadUnreadable": {
+    "description": "T12: the read succeeded with a body whose shape is not the one the intent expects — a collection read that is not an array, a single-record read that is not an object, or an empty body. It says the response was unreadable rather than reporting a count it does not have. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
   },
 
   "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",

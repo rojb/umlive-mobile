@@ -1,7 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../conversation/conversation_controller.dart';
-import '../conversation/operation_resolver.dart';
+import '../conversation/deterministic_resolver.dart';
 import '../core/log.dart';
 import '../data/app_database.dart';
 import '../data/profile_repository.dart';
@@ -35,8 +35,9 @@ class AppServices {
   final VoiceController voice;
 
   /// Owns the conversation's turn list and the resolution seam (`T11`). Built
-  /// against [connection] rather than a second connection state, with
-  /// [UnimplementedOperationResolver] until `T12`/`T13` supply a real one.
+  /// against [connection] rather than a second connection state, with the
+  /// deterministic resolver (`T12`'s read path, extended by `T13`) as the one
+  /// that turns an utterance into an operation call.
   final ConversationController conversation;
 
   /// Opens storage, wires the repositories and restores the stored profile.
@@ -67,7 +68,7 @@ class AppServices {
       voice: VoiceController(),
       conversation: ConversationController(
         connection,
-        resolver: const UnimplementedOperationResolver(),
+        resolver: const DeterministicOperationResolver(),
       ),
     );
   }

@@ -6,6 +6,7 @@ import '../core/log.dart';
 import '../l10n/app_localizations_es.dart';
 import '../presentation/connection_controller.dart';
 import '../presentation/discovered_scope.dart';
+import 'deterministic_resolver.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
 import 'turn.dart';
@@ -16,7 +17,8 @@ import 'turn.dart';
 /// used to hold directly: `CaptureSection`'s `onUtterance` callback feeds this
 /// controller through [submitUtterance], the screen renders [turns] instead
 /// of keeping its own state, and resolving an utterance is delegated to an
-/// [OperationResolver] — the seam `T12`/`T13` fill in, never this class.
+/// [OperationResolver] — the seam [DeterministicOperationResolver] fills in,
+/// never this class.
 ///
 /// Built in `AppServices.bootstrap()` like every other shared object, and
 /// bound to the app's one [ConnectionController] instead of opening a second
@@ -26,10 +28,12 @@ class ConversationController extends ChangeNotifier {
     ConnectionController connection, {
     OperationResolver? resolver,
   }) : _connection = connection,
-       // `T12`/`T13` supply the real resolver; until then the honest
-       // placeholder is the default, the same way `ConnectionController`
-       // defaults `BackendProbe` when the caller does not hand it one.
-       _resolver = resolver ?? const UnimplementedOperationResolver(),
+       // The shipped resolver is the deterministic one: `T12`'s read path is
+       // in it and `T13` extends the same class with the write path. It is
+       // defaulted here rather than required, the same way
+       // `ConnectionController` defaults `BackendProbe` when the caller does
+       // not hand it one.
+       _resolver = resolver ?? const DeterministicOperationResolver(),
        _executor = connection.buildExecutor() {
     _connection.addListener(_onConnectionChanged);
     _syncGreeting();

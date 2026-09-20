@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/sha256.dart';
+import '../core/text_fold.dart';
 import 'registry.dart';
 
 /// The result of turning a document into a registry.
@@ -947,11 +948,11 @@ abstract final class RegistryParser {
       if (common.isEmpty) break;
     }
 
-    final routeWord = _fold(_routeWord(collectionRoute));
+    final routeWord = foldText(_routeWord(collectionRoute));
     if (routeWord.isNotEmpty) {
       for (var length = common.length; length >= 1; length--) {
         final candidate = common.sublist(0, length).join();
-        if (_fold(candidate) == routeWord) return candidate;
+        if (foldText(candidate) == routeWord) return candidate;
       }
     }
     return common.isEmpty ? _routeWord(collectionRoute) : common.join();
@@ -986,34 +987,6 @@ abstract final class RegistryParser {
   static bool _isUpper(String character) =>
       character.toUpperCase() == character &&
       character.toLowerCase() != character;
-
-  /// Folds a word to ASCII, lower-case, alphanumerics only: `Dirección` and
-  /// `direccion` both become `direccion`, `ItemPedido` and `item-pedido` both
-  /// become `itempedido`.
-  static String _fold(String value) {
-    final buffer = StringBuffer();
-    for (final rune in value.toLowerCase().runes) {
-      final character = String.fromCharCode(rune);
-      final folded = _accents[character];
-      if (folded != null) {
-        buffer.write(folded);
-      } else if (_alphanumeric.hasMatch(character)) {
-        buffer.write(character);
-      }
-    }
-    return buffer.toString();
-  }
-
-  static final RegExp _alphanumeric = RegExp(r'[a-z0-9]');
-
-  static const Map<String, String> _accents = <String, String>{
-    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a',
-    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
-    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
-    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
-    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
-    'ñ': 'n', 'ç': 'c',
-  };
 
   static Map<String, Object?>? _asMap(Object? value) {
     if (value is Map<String, Object?>) return value;
