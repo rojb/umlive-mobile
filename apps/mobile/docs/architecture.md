@@ -992,3 +992,60 @@ target is never inferred.
   emptiness rests on instead: `remaining=0` from the drain, no notification
   registered for the package, `action=recover count=0`, and `api/pago` holding the
   replayed record.
+
+## 24. An optional field the operator volunteers (T13c)
+
+- **The draft knows the whole body, not only the questions.** `PendingCreate` carries
+  `bodyFields` — every writable field of the create body, in schema order — beside
+  `requiredFields`. Required drives what is **asked**; body drives what may be
+  **captured** and in which order the draft shows it. `_submitWrite` sends every
+  captured value, and `FR-MC02` is untouched: nothing is submitted while a required
+  field is missing.
+- **The rule for a volunteered pair.** A writable field's name — matched the way
+  entities are matched, by folding a **window** of tokens, so the schema's accented
+  `códigoPostal` is recognised from the two spoken words *"código postal"* —
+  followed by its value: the rest of the utterance, with **one** leading connector
+  (`es`, `son`, `con`, `de`, `a`) skipped, rebuilt from the token spans so accents
+  and capitals are the operator's own. Two limits are deliberate: only a field the
+  body declares writable can be filled this way (a read-only projection such as an
+  `id` is never captured), and a name matching the field **being asked for** is not
+  a volunteer — *"Calle 5"* answering the question about `calle` is the value
+  *"Calle 5"*, never *"5"*.
+- **One thing per turn is about questions, not about answers.** The band asks one
+  field at a time; when the operator answers the standing question **and** volunteers
+  a pair in the same breath (*"Springfield, código postal 1234"* answering `ciudad`),
+  both facts are captured and the conversation advances. Measured before the fix: the
+  app kept the postal code, **discarded the city** and asked for it again — dropping
+  what the operator said is the class of defect this project treats as the worst one.
+  The words before the pair are the answer when they convert for the asked field; when
+  they cannot, only the volunteer is captured and the question stands, visibly.
+- **The mirror shape is not split, and that is a decision.** *"field value, answer"* —
+  the pair first — leaves the answer inside the pair's value, and no rule can tell
+  which trailing words are a second answer rather than part of the value. That shape
+  keeps the older behaviour: capture the volunteer, ask the standing question again.
+  Guessing is worse than asking once more. Left as a documented limit, with the
+  text fallback as the way out.
+- **A collecting draft now has a way out.** The Response focus band renders
+  `Cancelar` while collecting (and no `Confirmar`, because there is nothing to confirm
+  yet), and a negative answer (`no`, `cancelar`, …) cancels the draft with the same
+  sentence the confirmation uses. Measured before the fix: the band offered no way
+  out at all, and the word `cancelar` was consumed as the field's answer — on a
+  numeric field it produced *"El valor de monto no tiene el formato esperado."*, and
+  on a text field it would have **stored the word as the value**. The accepted cost is
+  stated in the resolver: a word that means stop is never data, so a street that is
+  literally named `No` cannot be given by voice, and the text fallback is where an
+  operator insists.
+- **One logging inconsistency, recorded rather than tidied.** A cancel during
+  collection logs `reason=cancelled`; a cancel at the confirmation does not (it was
+  written before this rule existed and the line still carries `phase=confirming` and
+  `pending=false`). Nothing decides on it — the log is evidence for a human — so it is
+  left as found rather than churned in this change.
+- **Verified on `TFY-LX3`**: *"Agregá a Juan Perez como cliente con email
+  juan@ejemplo.com"* as one utterance produced a read-back with `nombre: Juan Perez`
+  **and** `email: juan@ejemplo.com` and a record carrying both; *"Calle 5"* answering
+  `calle` stayed `Calle 5`; *"Springfield, código postal 1234"* filled the city and
+  the accented `códigoPostal` in one turn and the submitted record carried all three
+  values; *"metodo tarjeta"* while `monto` was being asked left the draft showing
+  `metodo: tarjeta` with the question still standing; and both the touched control and
+  the typed word `cancelar` ended a collecting draft with *"Se canceló la operación y
+  no se envió nada."*, no executor line and nothing created.

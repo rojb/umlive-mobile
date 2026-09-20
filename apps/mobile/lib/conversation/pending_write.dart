@@ -57,17 +57,32 @@ final class PendingCreate extends PendingWrite {
     required super.entityName,
     required super.operationKey,
     required this.requiredFields,
+    required this.bodyFields,
     required this.values,
     required this.asking,
     required this.phase,
   });
 
   /// The create operation's required fields, in schema order: the list
-  /// `FR-MC02` walks, one at a time.
+  /// `FR-MC02` walks, one at a time, and the only thing that decides which
+  /// question is asked next.
   final List<FieldDescriptor> requiredFields;
 
+  /// Every writable field of the create body, in schema order: the whole body
+  /// the backend accepts, not only the part `FR-MC02` asks for.
+  ///
+  /// **The distinction is the point of this list.** [requiredFields] drives the
+  /// *questions* — one missing required field at a time — while [bodyFields]
+  /// drives what may be *captured*: a value the operator volunteers for an
+  /// optional field is legitimate only if the create body declares that field
+  /// writable, and the draft shows what it holds in this order. That is why a
+  /// read-only projection such as an `id` is never in it, and so can never be
+  /// volunteered. It is `requestBody.fields` of the create operation verbatim,
+  /// so the list is exactly as wide as the backend's own description.
+  final List<FieldDescriptor> bodyFields;
+
   /// What has been captured so far, keyed by field name, in the schema order
-  /// of [requiredFields]. The display text the operator gave, never the
+  /// of [bodyFields]. The display text the operator gave, never the
   /// converted JSON value — conversion happens once, at submit time.
   final Map<String, String> values;
 
@@ -101,6 +116,7 @@ final class PendingCreate extends PendingWrite {
     entityName: entityName,
     operationKey: operationKey,
     requiredFields: requiredFields,
+    bodyFields: bodyFields,
     values: <String, String>{...values, name: value},
     asking: nextAsking,
     phase:
@@ -118,6 +134,13 @@ final class PendingCreate extends PendingWrite {
   ///
   /// [values] is compared with [mapEquals], so two drafts that captured the
   /// same fields are equal whatever order they were captured in.
+  ///
+  /// [bodyFields] is compared by **name list**, and deliberately not by the
+  /// descriptors' own identity: two drafts built from the same schema declare
+  /// the same body even when the registry handed back rebuilt
+  /// [FieldDescriptor] objects, and a comparison that depended on their
+  /// identity would let one registry reload look like a conversation that
+  /// advanced.
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -126,7 +149,11 @@ final class PendingCreate extends PendingWrite {
           other.operationKey == operationKey &&
           other.phase == phase &&
           other.asking?.name == asking?.name &&
-          mapEquals(other.values, values);
+          mapEquals(other.values, values) &&
+          listEquals(
+            other.bodyFields.map((field) => field.name).toList(),
+            bodyFields.map((field) => field.name).toList(),
+          );
 
   /// Consistent with [==]: equal drafts hash the same.
   ///
@@ -142,6 +169,7 @@ final class PendingCreate extends PendingWrite {
     Object.hashAllUnordered(
       values.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),
+    Object.hashAll(bodyFields.map((field) => field.name)),
   );
 }
 

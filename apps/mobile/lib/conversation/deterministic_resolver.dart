@@ -362,8 +362,11 @@ class DeterministicOperationResolver implements OperationResolver {
   /// transcription is the operator's own words and does not belong in a
   /// device log. The write path keeps the same rule for what it captures:
   /// only [valueLength] is loggable, never the value, and [field] names the
-  /// field being asked for without carrying what was put into it. The delete
-  /// path keeps it for its one target too: the identifier named by the
+  /// field being asked for without carrying what was put into it.
+  /// [volunteered] keeps the rule for the pair a single utterance volunteered
+  /// (`T13c`): the field it was captured into is a name, and the value it
+  /// carried is logged — when it is logged at all — only as [valueLength]. The
+  /// delete path keeps it for its one target too: the identifier named by the
   /// operator is never a field of this line, and it reaches the log only
   /// through the executor's own `path=` line, which is a protocol-level fact —
   /// exactly what the read path's `get` already does with the id it binds.
@@ -380,6 +383,7 @@ class DeterministicOperationResolver implements OperationResolver {
     int? ageMs,
     String? phase,
     String? field,
+    String? volunteered,
     bool? extracted,
     int? valueLength,
     String? reason,
@@ -399,6 +403,7 @@ class DeterministicOperationResolver implements OperationResolver {
       'age_ms': ?ageMs,
       'phase': ?phase,
       'field': ?field,
+      'volunteered': ?volunteered,
       'extracted': ?extracted,
       'valueLength': ?valueLength,
       'reason': ?reason,
@@ -416,8 +421,10 @@ class DeterministicOperationResolver implements OperationResolver {
   ///
   /// Nothing is executed here. `FR-MC03` requires an affirmative before any
   /// `POST`, and `FR-MC02` requires the complete body, so the most this turn
-  /// does is fill in one value the operator volunteered in the §5.1 shape and
-  /// ask for the rest, one field at a time.
+  /// does is fill in the values the operator volunteered in this utterance and
+  /// ask for the rest, one field at a time: the §5.1 shape fills the first
+  /// required field, and a `field value` pair the same utterance carries fills
+  /// the optional field it names (`T13c`).
   ResolverOutcome _beginWrite({
     required String utterance,
     required int utteranceLength,
@@ -432,6 +439,14 @@ class DeterministicOperationResolver implements OperationResolver {
     final roleKey = entity.roleKeys[EntityRole.create];
     final operation = roleKey == null ? null : registry.operation(roleKey);
     final requiredFields = entity.requiredWritableFields;
+
+    // The draft's other list (`T13c`): every field the create body declares,
+    // which is what a value the operator volunteers for an optional field may
+    // be captured into. `requiredFields` above is the subset this conversation
+    // asks for, so an empty body and a body with nothing required stay
+    // distinguishable here.
+    final bodyFields =
+        operation?.requestBody?.fields ?? const <FieldDescriptor>[];
 
     // "A required body the app cannot fill": the document marks the body as
     // required (or lists required properties) while the entity carries no
@@ -459,6 +474,7 @@ class DeterministicOperationResolver implements OperationResolver {
       entityName: name,
       operationKey: operation.key,
       requiredFields: requiredFields,
+      bodyFields: bodyFields,
       values: const <String, String>{},
       asking: requiredFields.isEmpty ? null : requiredFields.first,
       phase: requiredFields.isEmpty
@@ -494,6 +510,44 @@ class DeterministicOperationResolver implements OperationResolver {
       }
     }
 
+    // A field the same utterance volunteered as a `field value` pair
+    // (`T13c`). This is deliberately independent of the extraction above, so
+    // *Agregá a Juan Perez como cliente con email juan@ejemplo.com* fills
+    // `nombre` from the §5.1 shape **and** `email` from the pair in one turn.
+    //
+    // The pair is only added when all three hold: the field is one the create
+    // body declares writable (which is what [CaptureResult.field] already is),
+    // nothing has been captured for it yet, and the operator's words convert
+    // to the declared type. A pair that fails any of them is ignored rather
+    // than guessed at, so the question this turn asks is exactly the one it
+    // would have asked anyway.
+    //
+    // The asked field is not excluded here, unlike in the collecting branch of
+    // [_continueWrite]: this utterance is the command that opens the draft, so
+    // there is no standing question a name could be confused with its answer.
+    // A body field the operator names here is volunteering, even when it is
+    // the field this turn is about to ask for.
+    var volunteeredName = '';
+    var volunteeredLength = 0;
+    final volunteered = _volunteeredField(utterance, spans, tokens, bodyFields);
+    if (volunteered != null &&
+        !draft.values.containsKey(volunteered.field.name)) {
+      final converted = convertFieldValue(volunteered.field, volunteered.value);
+      if (converted is FieldValueOk) {
+        final captured = volunteered.value.trim();
+        final remaining = draft.missing
+            .where((candidate) => candidate.name != volunteered.field.name)
+            .toList();
+        draft = draft.withValue(
+          volunteered.field.name,
+          captured,
+          nextAsking: remaining.isEmpty ? null : remaining.first,
+        );
+        volunteeredName = volunteered.field.name;
+        volunteeredLength = captured.length;
+      }
+    }
+
     final missing = draft.missing;
     final replyText = missing.isEmpty
         ? l10n.conversationWriteReadBackCreate(name)
@@ -509,8 +563,14 @@ class DeterministicOperationResolver implements OperationResolver {
       operation: operation.key,
       phase: draft.phase.name,
       field: draft.asking?.name,
+      volunteered: volunteeredName.isEmpty ? null : volunteeredName,
       extracted: extracted,
-      valueLength: extracted ? valueLength : null,
+      // The length column follows the value this turn captured: the §5.1 name
+      // when the shape filled one, and the volunteered pair when it was the
+      // only thing captured. A length is loggable; the text never is.
+      valueLength: extracted
+          ? valueLength
+          : (volunteeredName.isEmpty ? null : volunteeredLength),
       pending: draft,
     );
   }
@@ -652,6 +712,195 @@ class DeterministicOperationResolver implements OperationResolver {
     );
   }
 
+  /// A `field value` pair the operator volunteered, in one utterance.
+  ///
+  /// The shape is a writable field's name — matched the way entities are
+  /// matched, by folding a **window** of tokens, so `códigoPostal` is
+  /// recognised from the two spoken words "código postal" — followed by its
+  /// value: the rest of the utterance, with a leading connector (`es`, `son`,
+  /// `con`, `de`, `a`, `:`) skipped. The value is the operator's own words,
+  /// rebuilt from the token spans so accents and capitals survive.
+  ///
+  /// Two limits, both deliberate. Only a field the create body declares
+  /// **writable** can be filled this way (a read-only projection such as an
+  /// `id` is never captured). And a name that matches the field currently
+  /// **being asked for** is not a volunteer — "Calle 5" answering the question
+  /// about `calle` is the plain answer, not a value of "5" — so the whole
+  /// utterance is left to the normal answer path in that case.
+  static CaptureResult? _volunteeredField(
+    String utterance,
+    List<UtteranceToken> spans,
+    List<String> tokens,
+    List<FieldDescriptor> bodyFields, {
+    String? asking,
+  }) {
+    // [bodyFields] **is** the writable set — the create operation's request
+    // body — so matching against it is what keeps a read-only projection out:
+    // a name the body does not declare is not a field this can capture into.
+    if (bodyFields.isEmpty || tokens.isEmpty) return null;
+
+    // A joined window only ever grows, so once it is longer than the longest
+    // declared field name can be, no longer window can match either. The two
+    // extra characters are the plural forms [_accepts] also accepts.
+    var limit = 0;
+    for (final field in bodyFields) {
+      final length = foldText(field.name).length;
+      if (length > limit) limit = length;
+    }
+    if (limit == 0) return null;
+    limit += 2;
+
+    _CaptureMatch? best;
+    for (var start = 0; start < tokens.length; start++) {
+      final buffer = StringBuffer();
+      for (var end = start; end < tokens.length; end++) {
+        buffer.write(tokens[end]);
+        final joined = buffer.toString();
+        if (joined.length > limit) break;
+        for (final field in bodyFields) {
+          final fold = foldText(field.name);
+          if (fold.isEmpty || !_accepts(fold, joined)) continue;
+          final candidate = _CaptureMatch(
+            field: field,
+            tokenCount: end - start + 1,
+            foldLength: fold.length,
+            windowStart: start,
+            windowEnd: end + 1,
+          );
+          if (best == null || _betterCapture(candidate, best)) best = candidate;
+        }
+      }
+    }
+    if (best == null) return null;
+
+    // The field being asked for is answered, not volunteered: returning null
+    // here is what leaves the whole utterance to that path.
+    if (asking != null && best.field.name == asking) return null;
+
+    var valueStart = best.windowEnd;
+    if (valueStart < tokens.length &&
+        _fieldValueConnectors.contains(tokens[valueStart])) {
+      valueStart++;
+    }
+    if (valueStart >= tokens.length) return null;
+
+    // Rebuilt from the spans, not from the folded tokens: a window of tokens
+    // keeps everything between them, so `juan@ejemplo.com` survives the `@`
+    // and the `.`, and `Código` keeps its accent.
+    final value = utterance
+        .substring(spans[valueStart].start, spans[tokens.length - 1].end)
+        .trim();
+    if (value.isEmpty) return null;
+
+    return CaptureResult(
+      field: best.field,
+      value: value,
+      windowStart: best.windowStart,
+    );
+  }
+
+  /// More matched tokens wins; on equal tokens, the longer field name wins —
+  /// the ordering [_byScore] applies to entities, reused so a spoken multi-word
+  /// field name (`código postal`) beats a shorter one it contains, and a
+  /// genuine tie keeps the field the body declares first.
+  static bool _betterCapture(_CaptureMatch candidate, _CaptureMatch best) {
+    if (candidate.tokenCount != best.tokenCount) {
+      return candidate.tokenCount > best.tokenCount;
+    }
+    return candidate.foldLength > best.foldLength;
+  }
+
+  /// The connectors that may sit between a volunteered field's name and its
+  /// value: *email **es** juan@ejemplo.com*, *código postal **:** 1234*.
+  ///
+  /// This is input vocabulary and not copy, and it is deliberately short: a
+  /// word that is not here is part of the value, and dropping one the operator
+  /// said would corrupt the data. The colon needs no entry of its own — it is a
+  /// separator, so the tokenizer never produces it as a token — and it is
+  /// named here because the rule is about what the operator says, not about
+  /// what survives tokenization.
+  static const Set<String> _fieldValueConnectors = <String>{
+    'es',
+    'son',
+    'con',
+    'de',
+    'a',
+  };
+
+  /// The connectors that may join an answer to the field name it precedes:
+  /// *Springfield **y** código postal 1234*, *Springfield **con** código
+  /// postal 1234*.
+  ///
+  /// The mirror of [_fieldValueConnectors] at the other end of the same seam,
+  /// and input vocabulary rather than copy: it is deliberately short, and only
+  /// **one** of these is ever skipped, because one connector is exactly what
+  /// the value side skips when it reads the same seam from the other side. The
+  /// comma and the colon are not here: they are not tokens at all, so
+  /// [_answerBeforePair] ends the answer before them without a list. A word
+  /// that is not here is part of the answer, and dropping one the operator
+  /// said would corrupt the data.
+  static const Set<String> _answerConnectors = <String>{
+    'y',
+    'con',
+    'es',
+    'son',
+  };
+
+  /// The answer the operator gave **before** volunteering a pair (`T13c`).
+  ///
+  /// The supported shape is one sentence carrying two facts:
+  /// `"answer to the standing question, field value"`. The band asks for
+  /// `ciudad` and the operator answers *«Springfield, código postal 1234»*,
+  /// giving the city and volunteering the postal code in one breath; the city
+  /// is everything before the pair's field name, [windowStart].
+  ///
+  /// The answer is rebuilt the way a value is — from [spans], so accents and
+  /// capitals survive — and the seam that joins the two halves is removed:
+  /// the answer ends at the last token before the pair's name, which drops the
+  /// characters between two tokens (a trailing `,` or `:` among them) because
+  /// the tokenizer already decided they are not part of a word, and **one**
+  /// trailing connector ([_answerConnectors]) is skipped the way
+  /// [_volunteeredField] skips one leading connector on the value side.
+  ///
+  /// **The mirror shape is deliberately not handled.** `"field value,
+  /// answer"` — the pair first — puts the operator's answer inside the
+  /// pair's value, and no rule here can tell which trailing words of that tail
+  /// are a second answer instead of part of the value; splitting it would
+  /// corrupt the field the operator did name. That shape keeps the behaviour
+  /// [_volunteeredField] already has: the volunteer is captured from the whole
+  /// tail when its declared type accepts it, and the standing question is
+  /// asked again. Guessing is worse than asking once more.
+  ///
+  /// Returns null when nothing usable sits there: an empty prefix, or one that
+  /// is only a connector. The caller then keeps the behaviour it had before
+  /// this path existed, so an unusable prefix never silently consumes the
+  /// operator's answer — the volunteer is captured and the question repeats.
+  static String? _answerBeforePair(
+    String utterance,
+    List<UtteranceToken> spans,
+    List<String> tokens,
+    int windowStart,
+  ) {
+    if (windowStart <= 0) return null;
+
+    // The answer ends at the last token before the pair's name: everything
+    // between that token and the name is a separator by the tokenizer's own
+    // definition, so a comma the operator wrote there belongs to neither half.
+    var end = spans[windowStart - 1].end;
+
+    // One connector may join the answer to the name it precedes, and one is
+    // all the value side skips. Removing it leaves the answer ending at the
+    // token before it, or empty when the connector was the only word said
+    // before the pair.
+    if (_answerConnectors.contains(tokens[windowStart - 1])) {
+      end = windowStart > 1 ? spans[windowStart - 2].end : 0;
+    }
+
+    if (end <= 0) return null;
+    final answer = utterance.substring(0, end).trim();
+    return answer.isEmpty ? null : answer;
+  }
+
   /// Continues the write [pending] describes: the utterance is an answer to the
   /// conversation, never a new command.
   ///
@@ -667,7 +916,11 @@ class DeterministicOperationResolver implements OperationResolver {
     required OperationExecutor executor,
     required AppLocalizations l10n,
   }) async {
-    final tokens = utteranceTokens(utterance);
+    // One pass of the one tokenizer, both projections: the folded tokens the
+    // affirmative and negative rules read, and the spans the volunteered pair
+    // is rebuilt from (`T13c`).
+    final spans = utteranceTokenSpans(utterance);
+    final tokens = <String>[for (final span in spans) span.folded];
     final length = utterance.length;
 
     switch (pending) {
@@ -729,10 +982,191 @@ class DeterministicOperationResolver implements OperationResolver {
           );
         }
 
-        // Collecting: the whole utterance is the answer to the one field being
-        // asked for. `PendingCreate` sets `asking` for every collecting draft,
-        // so the phase and the field cannot disagree.
+        // Collecting: the utterance is the answer to the one field being asked
+        // for, unless it volunteers a pair for another field (`T13c`).
+        // `PendingCreate` sets `asking` for every collecting draft, so the
+        // phase and the field cannot disagree.
         final field = create.asking!;
+
+        // **A word that means "stop" is never a value.** Before anything else
+        // is read out of this utterance — before the volunteer pair is looked
+        // for and before the plain answer is converted — the negative
+        // vocabulary is checked, and a hit discards the draft exactly the way
+        // the confirming phase discards it: the same sentence, a settled turn,
+        // the draft gone, nothing sent and no evidence. Measured defect this
+        // closes: with `monto` being asked, the utterance *Cancelar* came back
+        // as `reason=invalid_field` with the only visible sentence *«El valor
+        // de monto no tiene el formato esperado»* — and had the field been a
+        // text field, the word would have been **stored as its value**. A draft
+        // with no escape route is a draft the operator cannot refuse, and the
+        // `FR-MD07` principle — the operator can always stop what the app is
+        // doing — applies to a draft exactly as it applies to the queue.
+        //
+        // `negativeAnswers` is input vocabulary (`spanish_language.dart`), not
+        // copy: the operator says these words, the app never renders them, and
+        // the band's *Cancelar* control submits one of them through this same
+        // resolution path, so what a cancel means stays implemented once.
+        //
+        // **The accepted cost**, and it is the same trade the confirmation
+        // already makes: this check runs before the plain-answer path, so a
+        // legitimate value that *is* one of those words — a street named "No",
+        // or the `false` of a boolean field — is refused rather than captured
+        // while a field is being collected. This is a whole-token comparison,
+        // so it is the answer made only of such a word that is lost, not every
+        // sentence that contains one. There is no second entry route to fall
+        // back on: the text is resolved by this same method, and the band's own
+        // *Cancelar* control submits one of these words through it, so "make
+        // the app stop" stays implemented exactly once. The confirmation
+        // already pays the same price for the same reason — a *no* there has
+        // never been data either — because reading a word that means "stop" as
+        // a value is worse than refusing it.
+        if (_isNegative(tokens)) {
+          // A cancel is neither a failure nor a success: nothing was sent, and
+          // the draft is dropped because there is nothing left to send. The
+          // `reason` names this turn's own outcome, so the log can tell a
+          // cancel from a value the declared type refused (`invalid_field`).
+          return _finish(
+            utteranceLength: length,
+            result: _resultWrite,
+            replyText: l10n.conversationWriteCancelled,
+            status: TurnStatus.resolved,
+            intent: _intentCreate,
+            entity: entityName,
+            operation: create.operationKey,
+            phase: phase,
+            reason: 'cancelled',
+            pending: null,
+          );
+        }
+
+        // One thing per turn — and that rule is about how many questions this
+        // turn **asks**, never about how many answers it accepts. A pair for a
+        // field other than the one being asked about is captured as a
+        // volunteered value, and when the operator also answered the standing
+        // question in the same breath — *«Springfield, código postal 1234»*
+        // answering `ciudad` — that answer is captured too and the
+        // conversation advances: the next missing required field is asked, or
+        // the record is read back when nothing is missing. Two facts said in
+        // one utterance are two facts, and dropping one of them is exactly the
+        // silent loss this project treats as a defect.
+        //
+        // When the words before the pair cannot answer the standing question —
+        // there are none, or the asked field's declared type refuses them —
+        // the question stands and is asked again, which is what it did before
+        // this turn could carry two facts: nothing is captured on a guess, and
+        // an answer the app could not use is still visible to the operator as
+        // the question repeating. `_volunteeredField` never returns the asked
+        // field, so a plain answer can never be read as a pair — *Calle 5*
+        // answering the question about `calle` is the value *Calle 5*, not a
+        // value of *5* for a field named `calle`.
+        final volunteered = _volunteeredField(
+          utterance,
+          spans,
+          tokens,
+          create.bodyFields,
+          asking: field.name,
+        );
+        if (volunteered != null) {
+          final captured = convertFieldValue(
+            volunteered.field,
+            volunteered.value,
+          );
+          // A pair whose value the declared type refuses is not captured, and
+          // the utterance then takes the plain answer path below exactly as it
+          // did before: nothing is invented for a field the app could not
+          // read.
+          if (captured is FieldValueOk) {
+            final text = volunteered.value.trim();
+
+            // The answer the same utterance gave to the standing question, if
+            // it gave one (`T13c`). [_answerBeforePair] owns the shape it
+            // supports and the mirror shape it leaves alone.
+            final answer = _answerBeforePair(
+              utterance,
+              spans,
+              tokens,
+              volunteered.windowStart,
+            );
+            final answered = answer == null
+                ? null
+                : convertFieldValue(field, answer);
+
+            // Both facts, captured and advanced: the question this turn leaves
+            // behind is the next one the draft actually needs, which is what
+            // the `field=` column then names — or the read-back, when nothing
+            // is missing any more. `valueLength` stays the length of the
+            // volunteered value, the column `volunteered` names.
+            if (answer != null && answered is FieldValueOk) {
+              final withVolunteer = create.withValue(
+                volunteered.field.name,
+                text,
+                nextAsking: field,
+              );
+              final rest = withVolunteer.missing
+                  .where((candidate) => candidate.name != field.name)
+                  .toList();
+              final nextDraft = withVolunteer.withValue(
+                field.name,
+                answer,
+                nextAsking: rest.isEmpty ? null : rest.first,
+              );
+              if (nextDraft.isComplete) {
+                return _finish(
+                  utteranceLength: length,
+                  result: _resultWrite,
+                  replyText: l10n.conversationWriteReadBackCreate(entityName),
+                  status: TurnStatus.resolved,
+                  intent: _intentCreate,
+                  entity: entityName,
+                  operation: create.operationKey,
+                  phase: nextDraft.phase.name,
+                  volunteered: volunteered.field.name,
+                  valueLength: text.length,
+                  pending: nextDraft,
+                );
+              }
+              return _finish(
+                utteranceLength: length,
+                result: _resultWrite,
+                replyText: l10n.conversationWriteAskField(
+                  nextDraft.asking!.name,
+                ),
+                status: TurnStatus.resolved,
+                intent: _intentCreate,
+                entity: entityName,
+                operation: create.operationKey,
+                phase: nextDraft.phase.name,
+                field: nextDraft.asking?.name,
+                volunteered: volunteered.field.name,
+                valueLength: text.length,
+                pending: nextDraft,
+              );
+            }
+
+            // Nothing usable sat before the pair, so today's behaviour is kept
+            // exactly: the volunteer is captured and the standing question
+            // stands, visible to the operator as the same question again.
+            return _finish(
+              utteranceLength: length,
+              result: _resultWrite,
+              replyText: l10n.conversationWriteAskField(field.name),
+              status: TurnStatus.resolved,
+              intent: _intentCreate,
+              entity: entityName,
+              operation: create.operationKey,
+              phase: phase,
+              field: field.name,
+              volunteered: volunteered.field.name,
+              valueLength: text.length,
+              pending: create.withValue(
+                volunteered.field.name,
+                text,
+                nextAsking: field,
+              ),
+            );
+          }
+        }
+
         final converted = convertFieldValue(field, utterance);
         if (converted is! FieldValueOk) {
           // One clear sentence, not two: the value was not accepted and the
@@ -1029,7 +1463,11 @@ class DeterministicOperationResolver implements OperationResolver {
     // Every captured value was converted when it was captured, so a failure
     // here is a bug: report a failed submit, keep the draft, and say so.
     final body = <String, Object?>{};
-    for (final field in pending.requiredFields) {
+    // Every field the body declares, not only the required ones: a value the
+    // operator volunteered for an optional field is part of the record and is
+    // sent with it (`T13c`). `FR-MC02` is unchanged — the loop runs only once
+    // `isComplete` holds above, so a partial body is still unreachable.
+    for (final field in pending.bodyFields) {
       final text = pending.values[field.name];
       if (text == null) continue;
       final converted = convertFieldValue(field, text);
@@ -1273,6 +1711,61 @@ class _IntentPlan {
 
   /// The numeric token that named a single record, for `_Intent.get` only.
   final String? recordId;
+}
+
+/// One `field value` pair a single utterance volunteered (`T13c`).
+///
+/// [value] is the operator's own words, exactly as [_volunteeredField] rebuilt
+/// them from the token spans — accents and capitals intact — and it is **not**
+/// converted yet: the caller converts it against [field] before anything
+/// reaches a draft, so a pair the declared type cannot accept is never stored.
+class CaptureResult {
+  const CaptureResult({
+    required this.field,
+    required this.value,
+    required this.windowStart,
+  });
+
+  /// The writable body field the utterance named.
+  final FieldDescriptor field;
+
+  /// The raw text that followed the name.
+  final String value;
+
+  /// The utterance token index where the field's name begins, so the caller
+  /// can read the text that sits **before** the pair — the answer an operator
+  /// gave in the same breath ([_answerBeforePair], `T13c`).
+  final int windowStart;
+}
+
+/// One body field's best-fitting window of the utterance, the shape
+/// [_EntityMatch] has for entities (`T13c`).
+class _CaptureMatch {
+  const _CaptureMatch({
+    required this.field,
+    required this.tokenCount,
+    required this.foldLength,
+    required this.windowStart,
+    required this.windowEnd,
+  });
+
+  final FieldDescriptor field;
+
+  /// How many utterance tokens the window covers.
+  final int tokenCount;
+
+  /// Length of the field's folded name, the tie-breaker when two fields match
+  /// the same number of tokens.
+  final int foldLength;
+
+  /// Token index where the window starts. Everything before it is what the
+  /// operator said before naming the field, which is the one place an answer
+  /// to the standing question can sit (`T13c`).
+  final int windowStart;
+
+  /// Token index one past the window. The value starts here, after the leading
+  /// connector is skipped.
+  final int windowEnd;
 }
 
 /// One entity's best-fitting window of the utterance.

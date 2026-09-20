@@ -13,6 +13,14 @@ import '../../theme/tokens.dart';
 /// beneath it as Secondary; and while confirming, the read-back carries the two
 /// controls, of unequal weight and with the committing one **not** pre-selected.
 ///
+/// **The escape route exists at every phase.** A create still collecting its
+/// fields carries a single *Cancelar* control: the operator who changes their
+/// mind can stop the draft at any point instead of having to finish the required
+/// fields first, which is not a way out at all. The committing control is the
+/// one that waits — *Confirmar* appears only once the record is complete and has
+/// been read back (`FR-MC03`), and a draft that is not complete has nothing to
+/// confirm.
+///
 /// It serves both writes (`T13`, `T13b`). A create is assembled, so it has a
 /// question and a draft beneath it; a delete names one record and nothing else,
 /// so it has only its read-back. Both are confirmed through the same two
@@ -65,10 +73,13 @@ class ResponseFocus extends StatelessWidget {
     };
 
     // The draft is a create's alone: a delete names one record and captures
-    // nothing, so it has no draft to show (`FR-MC05`).
+    // nothing, so it has no draft to show (`FR-MC05`). It walks the create
+    // body's fields, not only the required ones, so a field the operator
+    // volunteered (`T13c`) appears here exactly like the ones that were asked
+    // for, in schema order.
     final captured = switch (pending) {
       PendingDelete() => const <FieldDescriptor>[],
-      PendingCreate(:final requiredFields, :final values) => requiredFields
+      PendingCreate(:final bodyFields, :final values) => bodyFields
           .where((field) => values.containsKey(field.name))
           .toList(),
     };
@@ -85,6 +96,14 @@ class ResponseFocus extends StatelessWidget {
     final confirming = switch (pending) {
       PendingDelete() => true,
       PendingCreate(:final phase) => phase == WritePhase.confirming,
+    };
+
+    // Whether the band is showing a draft that is still being collected. It is
+    // the complement of [confirming] for a create and never true for a delete,
+    // which has no fields to collect (`FR-MC05`).
+    final collecting = switch (pending) {
+      PendingDelete() => false,
+      PendingCreate(:final phase) => phase == WritePhase.collecting,
     };
 
     return Semantics(
@@ -141,6 +160,24 @@ class ResponseFocus extends StatelessWidget {
                   FilledButton(
                     onPressed: onConfirm,
                     child: Text(l10n.conversationWriteConfirmAction),
+                  ),
+                ],
+              ),
+            ] else if (collecting) ...[
+              // A collecting draft gets the one control that can always be
+              // used and none of the one that cannot: *Cancelar* alone, so the
+              // operator can refuse a draft that is not finished yet. The
+              // committing control is deliberately absent — there is nothing
+              // to confirm until the record is complete and read back
+              // (`FR-MC03`) — and this control submits the same utterance a
+              // person would say, exactly like its confirming counterpart.
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: onCancel,
+                    child: Text(l10n.conversationWriteCancelAction),
                   ),
                 ],
               ),
