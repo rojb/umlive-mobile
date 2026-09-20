@@ -1,0 +1,88 @@
+{
+  "@@locale": "es",
+
+  "appTitle": "UMLive Voice",
+  "@appTitle": {
+    "description": "App name. Shown in the Assistant app bar and used as the task-switcher title. Not a translatable word, but it still lives here because no user-facing string may be hard-coded in Dart."
+  },
+
+  "assistantGreeting": "Hola, soy UMLive Voice. Puedo trabajar con tu backend por voz.",
+  "@assistantGreeting": {
+    "description": "First assistant turn, shown when the conversation area is empty. T3 replaces the capability sentence with one derived from the discovered schema; until then it states the intent only."
+  },
+
+  "captureUnavailableCaption": "El micrófono todavía no está disponible",
+  "@captureUnavailableCaption": {
+    "description": "Caption under the capture orb while the microphone is deliberately closed. T8 replaces it with the live listening state."
+  },
+
+  "captureOrbSemantics": "Control de captura de voz. El micrófono todavía no está disponible.",
+  "@captureOrbSemantics": {
+    "description": "Screen-reader label for the capture control. FR-MG03/FR-MG04: every control announces its own state, and the caption alone is not enough because the orb carries no text."
+  },
+
+  "connectTitle": "Conectar",
+  "@connectTitle": {
+    "description": "Title of the Connect screen."
+  },
+
+  "connectExplanation": "Todavía no hay ningún backend conectado",
+  "@connectExplanation": {
+    "description": "Headline of the Connect empty state. Also used by the Backend row of Settings, where it explains why the row leads to Connect."
+  },
+
+  "connectHelp": "La dirección del backend se ingresa una sola vez.",
+  "@connectHelp": {
+    "description": "Secondary line under the Connect headline. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."
+  },
+
+  "connectFieldLabel": "Dirección del backend",
+  "@connectFieldLabel": {
+    "description": "Visible label above the address field."
+  },
+
+  "connectFieldHint": "https://mi-backend.example.com",
+  "@connectFieldHint": {
+    "description": "Placeholder inside the address field. It is an example value, not copy to translate."
+  },
+
+  "queueTitle": "Cola",
+  "@queueTitle": {
+    "description": "Title of the Queue screen, and the tooltip of the queue action in the Assistant app bar."
+  },
+
+  "queueEmpty": "No hay nada en cola",
+  "@queueEmpty": {
+    "description": "Queue empty state. T18 replaces it with the pending list."
+  },
+
+  "settingsTitle": "Ajustes",
+  "@settingsTitle": {
+    "description": "Title of the Settings screen, and the tooltip of the settings action in the Assistant app bar."
+  },
+
+  "settingsLanguageLabel": "Idioma",
+  "@settingsLanguageLabel": {
+    "description": "Label of the locale row."
+  },
+
+  "settingsLanguageValue": "Español (es)",
+  "@settingsLanguageValue": {
+    "description": "Current, fixed locale. Locale is not a user choice at launch (UX spec, Pass 4 'Defaults introduced'), so this row is read-only."
+  },
+
+  "settingsTechnicalModeLabel": "Modo técnico",
+  "@settingsTechnicalModeLabel": {
+    "description": "Label of the technical-mode row (FR-ME06)."
+  },
+
+  "settingsTechnicalModeHelp": "Muestra el detalle técnico de cada turno.",
+  "@settingsTechnicalModeHelp": {
+    "description": "Explains what technical mode reveals. The switch is disabled until T23 wires it."
+  },
+
+  "settingsBackendLabel": "Backend",
+  "@settingsBackendLabel": {
+    "description": "Label of the row that navigates to the Connect screen."
+  }
+}
