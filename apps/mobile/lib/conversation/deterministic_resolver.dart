@@ -352,6 +352,28 @@ class DeterministicOperationResolver implements OperationResolver {
             pluralizeSpanishNoun(name),
           );
 
+    // The records this answer is about, in the shape `T21`'s cards render: the
+    // decoded body plus the entity's readable fields, in schema order
+    // (`FR-ME03`). Built **only here**, on the successful and cache-served read
+    // paths, so a write, a queued write, a refusal and a failure can never
+    // attach a card to a turn — the UX rule is that a card is only ever drawn
+    // from data the backend returned, and a local draft is not that.
+    //
+    // **A count carries no result**, exactly as a write or a refusal does.
+    // `FR-ME03` is about rendering a collection, and a count is not one: the
+    // operator asked how many, the sentence answers it, and rendering the
+    // records underneath that number would answer a question nobody asked.
+    // The collection this number was computed from still reaches the log and
+    // the evidence through `count` above; only the cards are withheld.
+    final turnResult = plan.intent == _Intent.count
+        ? null
+        : _turnResult(
+            body: body,
+            intent: plan.intent,
+            fields: entity.readableFields,
+            fromCache: cacheAge != null,
+          );
+
     return _finish(
       utteranceLength: length,
       result: _resultRead,
@@ -368,6 +390,43 @@ class DeterministicOperationResolver implements OperationResolver {
       cache: cacheAge == null ? null : true,
       ageMs: cacheAge?.inMilliseconds,
       evidence: evidence,
+      turnResult: turnResult,
+    );
+  }
+
+  /// The records a read returned, in the shape `T21`'s cards render, built from
+  /// the decoded body the answer is already computed from (`FR-ME03`).
+  ///
+  /// The shape follows the intent, exactly as the count above does: a `get` is
+  /// one record when the body is an object, and a `list` is one record per
+  /// element of the array — a `count` never reaches this method, because the
+  /// caller withholds its result. **An element that is not a JSON object gets no
+  /// card** — there is no field list that could honestly describe it — while
+  /// the sentence still counts what the backend returned (`FR-ME02`): the count
+  /// is how many came back, and the cards are how many of those can be shown.
+  ///
+  /// The fields are the entity's readable fields in response-schema order, so a
+  /// card labels a value with the name the schema gave it (`FR-MC07`). Always
+  /// built for a read this method is called from — the caller decides *which*
+  /// paths may carry it, and this method never returns null.
+  static TurnResult _turnResult({
+    required Object? body,
+    required _Intent intent,
+    required List<FieldDescriptor> fields,
+    required bool fromCache,
+  }) {
+    final records = <Map<String, Object?>>[];
+    if (intent == _Intent.get) {
+      if (body is Map) records.add(Map<String, Object?>.from(body));
+    } else if (body is List) {
+      for (final element in body) {
+        if (element is Map) records.add(Map<String, Object?>.from(element));
+      }
+    }
+    return TurnResult(
+      records: records,
+      fields: fields,
+      fromCache: fromCache,
     );
   }
 
@@ -410,6 +469,7 @@ class DeterministicOperationResolver implements OperationResolver {
     String? reason,
     OperationEvidence? evidence,
     PendingWrite? pending,
+    TurnResult? turnResult,
   }) {
     logEvent('resolver', <String, Object?>{
       'result': result,
@@ -434,6 +494,7 @@ class DeterministicOperationResolver implements OperationResolver {
       status: status,
       evidence: evidence,
       pending: pending,
+      result: turnResult,
     );
   }
 

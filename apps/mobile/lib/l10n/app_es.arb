@@ -613,6 +613,44 @@
     }
   },
 
+  "recordNoValue": "Sin valor",
+  "@recordNoValue": {
+    "description": "T21: the value column of a record card for a field the record does not carry. It is rendered rather than skipped, so two records of the same entity line up row for row and the absence is visible instead of missing. An absent field and a null value render the same way, because to an operator they are the same fact. Neutral register, no tuteo or voseo."
+  },
+
+  "recordBooleanTrue": "Sí",
+  "@recordBooleanTrue": {
+    "description": "T21: a boolean field whose value is true, said in the operator's language. The schema declares the field `boolean` and JSON spells it `true`, which is not what a result card should show. Neutral register, no tuteo or voseo."
+  },
+
+  "recordBooleanFalse": "No",
+  "@recordBooleanFalse": {
+    "description": "T21: a boolean field whose value is false, said in the operator's language, the counterpart of recordBooleanTrue. Neutral register, no tuteo or voseo."
+  },
+
+  "recordListValue": "{count, plural, =1{1 elemento} other{{count} elementos}}",
+  "@recordListValue": {
+    "description": "T21: a list-valued field is summarised by how many elements it has. A card's value column is one line of domain text, and rendering a list's contents honestly is not something it can do. FR-ME01 applies to this count the same way it applies to a collection: one element is singular. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "recordCardsTruncated": "{shown, plural, =1{Se muestra 1 de {total} registros.} other{Se muestran {shown} de {total} registros.}}",
+  "@recordCardsTruncated": {
+    "description": "T21, FR-ME02's scale note: a collection of a thousand is correct behaviour and showing a thousand cards is not, so the cards are capped and the sentence says what was left out instead of pretending. It is deliberately not a count of records the app found: it counts the ones shown against the ones the backend returned. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+
   "conversationNotUnderstoodNoEntity": "No reconocí ninguna entidad conocida en esa indicación. Conozco: {entities}.",
   "@conversationNotUnderstoodNoEntity": {
     "description": "T12: refusal when no entity the registry knows was named. The vocabulary comes from the registry (FR-MC07), which is why it can name what it does know instead of only what it missed. Neutral register, no tuteo or voseo.",

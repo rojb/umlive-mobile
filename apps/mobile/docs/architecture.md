@@ -1085,3 +1085,46 @@ target is never inferred.
   are stated where it lives (`conversation/spanish_language.dart`): invariant nouns
   (`crisis`), the `-ús`/`-ís` split (`autobús` → `autobuses` but `país` → `países`),
   and words that gain an accent in the plural (`examen` → `exámenes`).
+
+## 26. Domain rendering: cards, not JSON (T21)
+
+- **A read carries what it read.** `TurnResult` holds the records and the entity's
+  `readableFields` in response-schema order, and it is built **only** for `list` and
+  `get`. A `count` deliberately carries none: the operator asked how many, the
+  sentence answers it, and rendering the collection underneath would answer a
+  question nobody asked — measured, the count turn has zero card labels on screen.
+  Nothing else carries one either: a write, a queued write, a refusal and a failure
+  all render no records, because a card means the data came back from the backend.
+- **The vocabulary is the schema's.** Each card is a column of label/value rows in
+  the schema's own order, labelled with the field names as the document declares
+  them — `códigoPostal`, `pedidoId` — which is `FR-MC07` applied to rendering. Raw
+  JSON never reaches the default presentation (`FR-ME03`): measured on the device,
+  zero occurrences of `{`, `}`, `"monto"` or `1500.0` in any dump.
+- **How a value renders, and why.** A string as it is; a number whose value has no
+  fractional part in its integer form, because the backend returns `monto: 1500.0`
+  and an operator does not say *"mil quinientos punto cero"* — measured, the card
+  reads `1500`; a boolean as *Sí*/*No*; `null` and an absent field both as *Sin
+  valor* in the muted colour, so two records of the same entity line up row for row;
+  a list as its element count (*0 elementos* measured on `citaIds`); and a nested
+  object is omitted entirely, because a nested object has no honest one-line
+  rendering and JSON is forbidden.
+- **A collection is capped, and it says so** (`FR-ME02`'s scale note). At most
+  twenty cards, and one muted line when there are more. Measured with twenty-five
+  records: twenty cards (ids 1–20, none for 21–25) and *"Se muestran 20 de 25
+  registros."* A thousand records is correct behaviour for the app; a thousand cards
+  in a scrolling column is a freeze.
+- **Read-after-write consistency is a re-read, not a local copy** (`FR-ME04`). A
+  successful write drops the profile's remembered reads — on the live path through
+  the cache decorator and on a drained replay through the same repository method, so
+  the rule has one implementation and one log line (`action=clear
+  reason=after_write`). Without it a remembered list that predates the write could
+  answer a list and silently omit the record just created. Measured: create →
+  list goes to the backend (`status=200`, `action=store` with the post-write body of
+  127 bytes) → the card group contains the created record (id 11, `Ana Card`,
+  `ana@ejemplo.com`); and an offline list afterwards was served from that
+  **post-write** body, which is the right answer to give.
+- **One path stays unverified, and it is the narrow one.** The pure miss — a write
+  followed *immediately* by an offline list, with no intervening live read — was not
+  exercised: the authorized sequence took a live list in between, which legitimately
+  repopulated the cache. The clearing itself is evidenced by the `action=clear
+  reason=after_write` line at the moment of the write.

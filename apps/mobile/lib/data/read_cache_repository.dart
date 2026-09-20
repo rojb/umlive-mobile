@@ -206,4 +206,24 @@ class ReadCacheRepository {
       whereArgs: <Object?>[profileId],
     );
   }
+
+  /// Drops every cached read of [profileId] because a write just succeeded
+  /// (`FR-ME04`), and says so in the log.
+  ///
+  /// `FR-ME04` requires a list issued after a successful create in the same
+  /// session to include the created record, by **re-reading** the collection
+  /// rather than by trusting a local copy. A remembered list that predates the
+  /// write would answer with the collection as it was before the write and
+  /// silently omit what was just created — exactly the failure the requirement
+  /// names — so the app prefers an honest miss, which the next read repopulates
+  /// from the backend. It is deliberately the same [clear] the address change
+  /// uses; only the log line differs, because the two reasons have to be
+  /// distinguishable from `adb logcat`.
+  Future<void> clearAfterWrite(String profileId) async {
+    await clear(profileId);
+    logEvent('cache', <String, Object?>{
+      'action': 'clear',
+      'reason': 'after_write',
+    });
+  }
 }

@@ -8,6 +8,7 @@
 /// each carrying who spoke and its own status.
 library;
 
+import '../openapi/registry.dart';
 import 'operation_executor.dart';
 
 /// The lifecycle of one turn.
@@ -82,6 +83,33 @@ class OperationEvidence {
   final int? latencyMs;
 }
 
+/// What a read returned, in the shape a surface renders (`T21`).
+///
+/// It carries the records **and** the field list of the entity they came
+/// from, because a card has to label a value with the name the schema gave it
+/// — the original UML spelling, `códigoPostal` and not `codigoPostal` — and
+/// the order the schema declares them in. That is the whole point of
+/// rendering domain data instead of JSON: the vocabulary is the backend's,
+/// not the app's (`FR-MC07`), and raw JSON never reaches the default
+/// presentation (`FR-ME03`).
+final class TurnResult {
+  const TurnResult({
+    required this.records,
+    required this.fields,
+    this.fromCache = false,
+  });
+
+  /// Zero or more records, each a decoded JSON object.
+  final List<Map<String, Object?>> records;
+
+  /// The entity's readable fields, in response-schema order.
+  final List<FieldDescriptor> fields;
+
+  /// True when the answer came from the read cache (`FR-MD05`). The age is
+  /// carried by the turn's sentence, so the cards do not repeat it.
+  final bool fromCache;
+}
+
 /// One turn in the conversation, spoken by either party.
 ///
 /// Sealed so every place that renders a turn is forced to handle both cases —
@@ -125,6 +153,12 @@ final class UserTurn extends ConversationTurn {
 /// first [AssistantTurn], always [TurnStatus.resolved], synthesized by
 /// [ConversationController] from the discovered registry the same way the old
 /// widget-level greeting was.
+///
+/// The [result] this turn may carry holds the records a read returned, and
+/// they are what the **backend** returned — never a local draft, a queued
+/// command or anything the app inferred. The UX rule is exact: if the operator
+/// sees a card, that data came back from the backend (UX spec, Pass 3), which
+/// is why only the successful and cache-served read paths ever attach one.
 final class AssistantTurn extends ConversationTurn {
   const AssistantTurn({
     required super.id,
@@ -132,6 +166,7 @@ final class AssistantTurn extends ConversationTurn {
     required this.text,
     required this.status,
     this.evidence,
+    this.result,
   });
 
   /// What is shown and, eventually, spoken. Empty while [status] is
@@ -145,15 +180,22 @@ final class AssistantTurn extends ConversationTurn {
   /// until `T12`/`T13` start calling the executor.
   final OperationEvidence? evidence;
 
+  /// The records a read returned, when this turn answers a read that succeeded
+  /// or was served from the read cache (`T21`). Null for every other turn: the
+  /// greeting, a write, a queued write, a refusal and a failure.
+  final TurnResult? result;
+
   AssistantTurn copyWith({
     String? text,
     TurnStatus? status,
     OperationEvidence? evidence,
+    TurnResult? result,
   }) => AssistantTurn(
     id: id,
     timestamp: timestamp,
     text: text ?? this.text,
     status: status ?? this.status,
     evidence: evidence ?? this.evidence,
+    result: result ?? this.result,
   );
 }

@@ -18,6 +18,7 @@ library;
 
 import '../core/log.dart';
 import '../data/outbox_repository.dart';
+import '../data/read_cache_repository.dart';
 import '../openapi/registry.dart';
 import '../presentation/discovered_scope.dart';
 import 'operation_executor.dart';
@@ -113,6 +114,12 @@ class DrainReport {
 /// depends on. A failed item keeps its place and its reason and is never
 /// silently discarded (`FR-MD08`), so it can be retried or cancelled once `T18`
 /// exposes the queue.
+///
+/// A replay the backend accepted also drops the profile's remembered reads
+/// (`FR-ME04`), through the same [ReadCacheRepository.clearAfterWrite] the live
+/// cache decorator calls: the executor handed to this class is cache-free by
+/// design, so the drain is the only thing on this path that can invalidate what
+/// the write made stale.
 class OutboxDrainer {
   OutboxDrainer({
     required this.outbox,
@@ -120,6 +127,7 @@ class OutboxDrainer {
     required this.executorOf,
     required this.registryOf,
     required this.isReachable,
+    required this.readCache,
   });
 
   /// The queue this drain reads and updates. It is the same repository the
@@ -144,6 +152,12 @@ class OutboxDrainer {
   /// against a backend that has not answered is what the requirement forbids,
   /// so the drain refuses to start when this is false.
   final bool Function() isReachable;
+
+  /// The read cache a **successful** replay invalidates (`FR-ME04`), or null
+  /// when this build has none available. The same optional dependency the live
+  /// cache decorator takes, so a build without a cache degrades to the live
+  /// path here too.
+  final ReadCacheRepository? readCache;
 
   /// The stable codes a skip, a per-item failure and a stop are logged with.
   /// They are protocol-level descriptions, never captured values.
@@ -223,7 +237,13 @@ class OutboxDrainer {
     final outcomes = <DrainOutcome>[];
     var stoppedOnFailure = false;
     for (final item in items) {
-      final outcome = await _drainOne(item: item, registry: registry);
+      final outcome = await _drainOne(
+        item: item,
+        registry: registry,
+        // The id read once for this run, passed down rather than re-read: a
+        // clear must address the same profile the run is draining.
+        profileId: profileId,
+      );
       outcomes.add(outcome);
       if (outcome is DrainFailed) {
         stoppedOnFailure = true;
@@ -245,6 +265,7 @@ class OutboxDrainer {
   Future<DrainOutcome> _drainOne({
     required OutboxItem item,
     required ApiRegistry registry,
+    required String profileId,
   }) async {
     await outbox.markInFlight(item.id);
 
@@ -291,6 +312,16 @@ class OutboxDrainer {
         'seq': item.seq,
         'status': result.statusCode,
       });
+      // A replay the backend accepted is a write that was persisted, so
+      // `FR-ME04` applies here exactly as it applies to the live path: a list
+      // issued after it has to include what it created, by re-reading, and a
+      // collection remembered before it would answer that list with the
+      // collection as it was and silently omit the record. The replay executor
+      // is deliberately cache-free, so nothing else clears it on this path.
+      //
+      // A **failed** replay clears nothing below: the backend never persisted
+      // it, so no remembered answer went stale and there is nothing to drop.
+      await _clearAfterWrite(profileId: profileId, seq: item.seq);
       return DrainSent(
         seq: item.seq,
         kind: item.kind,
@@ -321,6 +352,38 @@ class OutboxDrainer {
       statusCode: result.statusCode,
       reason: reason,
     );
+  }
+
+  /// Drops every read remembered for [profileId], because a replay just
+  /// succeeded (`FR-ME04`).
+  ///
+  /// It clears by **profile**, never by operation, for the reason the live
+  /// decorator gives: the record the replay created or changed may appear in
+  /// any remembered collection, and only a profile-wide clear is certain to
+  /// drop every row the write invalidated. The clear itself is
+  /// [ReadCacheRepository.clearAfterWrite], so the `[umlive][cache]
+  /// action=clear reason=after_write` line — and the reason behind it — exist in
+  /// exactly one place, and this class writes no second line about it.
+  ///
+  /// Like every other storage call on this path it degrades rather than throws:
+  /// a cache that cannot be cleared is logged and the sent item is still
+  /// reported as sent, because the write itself already happened.
+  Future<void> _clearAfterWrite({
+    required String profileId,
+    required int seq,
+  }) async {
+    final cache = readCache;
+    if (cache == null) return;
+    try {
+      await cache.clearAfterWrite(profileId);
+    } on Object catch (error) {
+      logEvent('cache', <String, Object?>{
+        'action': 'skip',
+        'reason': 'clear_failed',
+        'seq': seq,
+        'error': error.runtimeType.toString(),
+      });
+    }
   }
 
   /// The reason the drain **persists** into `outbox.last_error`.

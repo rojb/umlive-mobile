@@ -77,7 +77,10 @@ class ConversationController extends ChangeNotifier with WidgetsBindingObserver 
     _outbox = outbox;
     // The drain is built from the connection's public surface and nothing else:
     // a live profile id, the outbox-free replay executor, the live registry,
-    // and `FR-MD01`'s *the backend answered*.
+    // `FR-MD01`'s *the backend answered*, and the read cache a successful
+    // replay has to invalidate (`FR-ME04`). That cache is the connection's own
+    // instance, not a second one: a replay and the conversation have to drop
+    // the same remembered reads.
     _drainer = OutboxDrainer(
       outbox: _outbox,
       profileIdOf: () => connection.profileId,
@@ -85,6 +88,7 @@ class ConversationController extends ChangeNotifier with WidgetsBindingObserver 
       registryOf: () => connection.apiRegistry,
       isReachable: () =>
           connection.reachability == ReachabilityState.connected,
+      readCache: connection.readCache,
     );
     // The voice layer implements the port; `AppServices` hands over the app's
     // one `VoiceController`. Null means the conversation is silent — capture
@@ -443,6 +447,7 @@ class ConversationController extends ChangeNotifier with WidgetsBindingObserver 
         text: outcome.replyText,
         status: outcome.status,
         evidence: outcome.evidence,
+        result: outcome.result,
       );
     }
     logEvent('conversation', {

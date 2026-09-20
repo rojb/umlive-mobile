@@ -25,6 +25,7 @@ class ResolverOutcome {
     required this.status,
     this.evidence,
     this.pending,
+    this.result,
   });
 
   /// What the assistant turn shows and, eventually, speaks.
@@ -57,6 +58,16 @@ class ResolverOutcome {
   /// resolver stays stateless. It is sealed, so a consumer has to handle both a
   /// [PendingCreate] and a [PendingDelete].
   final PendingWrite? pending;
+
+  /// What a read returned, in the shape `T21`'s cards render (`FR-ME03`), or
+  /// null when this outcome produced nothing to render.
+  ///
+  /// Only the successful and cache-served read paths build one
+  /// ([TurnResult.fromCache] tells them apart). A write, a queued write, a
+  /// refusal and a failure all leave it null: a card is only ever drawn from
+  /// data the backend actually returned, so nothing the app drafted, queued or
+  /// guessed can reach a surface through this field.
+  final TurnResult? result;
 }
 
 /// Resolves one utterance against the discovered [ApiRegistry], optionally

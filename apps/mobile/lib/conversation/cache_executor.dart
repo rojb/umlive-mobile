@@ -75,7 +75,20 @@ class CachingOperationExecutor extends OperationExecutor {
     // call returned: the outbox decorator inside this layer owns writes
     // entirely. This one line is the *never conflated* rule of `FR-MD05` — a
     // write is never answered from a remembered read.
-    if (!_safeMethods.contains(operation.method.toUpperCase())) return result;
+    //
+    // **A write the backend accepted is the one event that makes every
+    // remembered read suspect** (`FR-ME04`). A list issued after a successful
+    // create has to include the created record, and a list remembered before
+    // it does not: answering from it would silently omit what was just
+    // created. So the read cache is dropped here and repopulated by the next
+    // read, which prefers an honest miss to a collection that lies by
+    // omission. A **queued** write changes nothing: `succeeded` is deliberately
+    // false for it, the backend never received it, nothing was persisted and no
+    // remembered answer went stale.
+    if (!_safeMethods.contains(operation.method.toUpperCase())) {
+      if (result.succeeded) await _clearAfterWrite(operation);
+      return result;
+    }
 
     // The backend answered, so this is a live read (`FR-MD05` at its best): it
     // is remembered for the next time the backend does not, and returned to the
@@ -103,6 +116,36 @@ class CachingOperationExecutor extends OperationExecutor {
     if (cached == null) return result;
 
     return _asCached(result, cached);
+  }
+
+  /// Drops every read remembered for the live profile, because a write just
+  /// succeeded (`FR-ME04`).
+  ///
+  /// The clear is addressed by **profile**, never by operation: the record the
+  /// write created or changed may appear in any remembered collection, and the
+  /// cache key is (profile, operation, resolved path), so only a profile-wide
+  /// clear is certain to drop every row the write invalidated.
+  ///
+  /// Like every other storage call in this layer it degrades rather than
+  /// throws: a cache that cannot be cleared is logged and the write's own
+  /// answer is still returned untouched. A missing cache or an unusable profile
+  /// is a quiet no-op — there is nothing remembered to invalidate, so no clear
+  /// happened and none is logged.
+  Future<void> _clearAfterWrite(ApiOperation operation) async {
+    final cache = _cache;
+    if (cache == null) return;
+    final profileId = _profileIdOf();
+    if (profileId == null || profileId.isEmpty) return;
+    try {
+      await cache.clearAfterWrite(profileId);
+    } on Object catch (error) {
+      logEvent('cache', <String, Object?>{
+        'action': 'skip',
+        'operation': operation.key,
+        'reason': 'clear_failed',
+        'error': error.runtimeType.toString(),
+      });
+    }
   }
 
   /// Writes one successful read into the cache, or reports why it could not.

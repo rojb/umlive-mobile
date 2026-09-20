@@ -9,6 +9,7 @@ import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/capture_section.dart';
 import '../widgets/reachability_indicator.dart';
+import '../widgets/record_cards.dart';
 import '../widgets/response_focus.dart';
 import '../widgets/voice_status_banner.dart';
 
@@ -286,9 +287,9 @@ class _TurnBubble extends StatelessWidget {
         alignment: Alignment.topRight,
         child: _UserTurn(text: text),
       ),
-      AssistantTurn(:final text, :final status) => Align(
+      AssistantTurn(:final text, :final status, :final result) => Align(
         alignment: Alignment.topLeft,
-        child: _AssistantTurn(text: text, status: status),
+        child: _AssistantTurn(text: text, status: status, result: result),
       ),
     };
   }
@@ -303,50 +304,75 @@ class _TurnBubble extends StatelessWidget {
 /// mark survives even for someone who does not read the icon. A queued turn
 /// that looks like a result is the app lying about durability, which is the one
 /// thing the queue exists to prevent (architecture §4).
+///
+/// `T21` renders the turn's [TurnResult] as cards **below the bubble and
+/// outside it**: the bubble is the assistant's voice, and a record card is the
+/// backend's own data (`FR-ME03`). The two stay left-aligned so the answer
+/// reads as one block, and the sentence keeps owning the count while the cards
+/// own the records (`T20`).
 class _AssistantTurn extends StatelessWidget {
-  const _AssistantTurn({required this.text, required this.status});
+  const _AssistantTurn({
+    required this.text,
+    required this.status,
+    this.result,
+  });
 
   final String text;
   final TurnStatus status;
 
+  /// The records this read returned, or null for every turn that is not a
+  /// successful or cache-served read.
+  final TurnResult? result;
+
   @override
   Widget build(BuildContext context) {
     final queued = status == TurnStatus.queued;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadii.cardSmallAll,
-        border: queued ? Border.all(color: AppColors.border) : null,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (queued) ...[
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.schedule_outlined,
-                  size: 16,
-                  color: AppColors.textMuted,
+    final records = result;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: AppRadii.cardSmallAll,
+            border: queued ? Border.all(color: AppColors.border) : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (queued) ...[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.schedule_outlined,
+                      size: 16,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      AppLocalizations.of(context).turnQueuedLabel,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  AppLocalizations.of(context).turnQueuedLabel,
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
+                const SizedBox(height: AppSpacing.xs),
               ],
-            ),
-            const SizedBox(height: AppSpacing.xs),
-          ],
-          Text(text, style: Theme.of(context).textTheme.bodyMedium),
+              Text(text, style: Theme.of(context).textTheme.bodyMedium),
+            ],
+          ),
+        ),
+        if (records != null && records.records.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          RecordCards(result: records),
         ],
-      ),
+      ],
     );
   }
 }
