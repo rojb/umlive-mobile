@@ -41,11 +41,13 @@ class ReachabilityOperationExecutor extends OperationExecutor {
     required ApiOperation operation,
     Map<String, String> pathParameters = const <String, String>{},
     Object? body,
+    Map<String, String> headers = const <String, String>{},
   }) async {
     final result = await _inner.execute(
       operation: operation,
       pathParameters: pathParameters,
       body: body,
+      headers: headers,
     );
     _report(result);
     return result;

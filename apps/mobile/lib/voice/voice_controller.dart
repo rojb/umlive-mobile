@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -281,8 +282,77 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
   /// is queued behind one that is still playing.
   int _speechPending = 0;
 
+  /// How long [speak] waits for synthesis before it drops the sentence.
+  ///
+  /// Measured on `TFY-LX3` at cold start: the drain fired as soon as the backend
+  /// answered, so the two outcome turns arrived at `13:26:13.843` and
+  /// `13:26:13.845`, while `[umlive][voice] kind=init result=ready` only landed
+  /// at `13:26:14.870` (the voice was pinned at `13:26:14.869`). The recognizer
+  /// alone took 6 241 ms in that same launch, so the voice becomes ready a
+  /// little after the turn does: the budget has to cover the tail of cold-start
+  /// provisioning, not the whole launch.
+  static const Duration _synthesisWaitBudget = Duration(seconds: 8);
+
+  /// True when synthesis can say a sentence now, or when it never will.
+  ///
+  /// The settled "never will" states are the voice controller giving up on the
+  /// engine ([VoiceReadiness.unavailable]) and speech having finished its own
+  /// initialization with a problem. The problem check is guarded by
+  /// [VoiceReadiness.ready] on purpose: [PlatformSpeech] starts out reporting
+  /// `SpeechProblem.engineUnavailable` before anyone has asked it to
+  /// initialize, so a bare problem check would call provisioning "settled" and
+  /// release the sentence into the very race this wait exists to close.
+  bool get _synthesisSettled =>
+      _speech.isReady ||
+      _readiness == VoiceReadiness.unavailable ||
+      (_readiness == VoiceReadiness.ready &&
+          _speech.problem != SpeechProblem.none);
+
+  /// Waits for synthesis readiness on the notification this class already
+  /// emits, bounded by [_synthesisWaitBudget].
+  ///
+  /// Returns `true` when the sentence should proceed — either the engine can
+  /// say it, or it never will and the existing refusal path has to report that
+  /// failure — and `false` when the budget ran out and [speak] must drop the
+  /// sentence instead of committing it to the chain.
+  Future<bool> _awaitSynthesis() async {
+    if (_synthesisSettled) return true;
+
+    final ready = Completer<void>();
+    void onChanged() {
+      if (_synthesisSettled && !ready.isCompleted) ready.complete();
+    }
+
+    addListener(onChanged);
+    try {
+      // The condition can turn true between the check above and the listener
+      // being attached. Re-check inside the guarded region so that transition
+      // is never waited out.
+      onChanged();
+      await ready.future.timeout(_synthesisWaitBudget);
+      return true;
+    } on TimeoutException {
+      return false;
+    } finally {
+      removeListener(onChanged);
+    }
+  }
+
   /// Speaks [text] through the pinned offline voice, one sentence at a time and
   /// in call order.
+  ///
+  /// Measured on `TFY-LX3` during `T16`'s verification, at cold start: the
+  /// voice engine spends seconds provisioning and pinning the offline voice
+  /// (`kind=init result=ready` at `13:26:14.870`, the voice pinned at
+  /// `13:26:14.869`), while the drain fires as soon as the backend answers. The
+  /// two outcome turns arrived at `13:26:13.843` and `13:26:13.845`, and both
+  /// were refused — `kind=speak result=refused reason=no_offline_voice` plus
+  /// `kind=speak_failed error=SpeechException`. The sentences were never said
+  /// and nothing retried them: a sentence the app owes was lost to a cold
+  /// start, because the wait for readiness did not exist.
+  ///
+  /// The rule: a sentence the app owes is said when the engine can say it, and
+  /// it is never spoken after the budget when the engine never came up.
   ///
   /// Measured on `TFY-LX3` during `T15`'s verification: the conversation issued
   /// the resolving cue (`12:41:56.203`) and the sentence that settles right
@@ -296,13 +366,29 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
   /// breaks `FR-MD03` and the conversation's own contract that every settled
   /// sentence is spoken.
   ///
-  /// The rule this enforces: the app speaks in order, and a sentence is never
-  /// dropped because another one is still playing. Each call appends one link
-  /// to [_speechChain] and completes when *this* sentence has finished playing;
-  /// a failure is swallowed into a `tts` log line, never into a broken chain,
-  /// because the next sentence still has to play.
+  /// These rules compose into one: the app speaks in order, a sentence is never
+  /// dropped because another one is still playing, and a sentence is never lost
+  /// to a cold start. Each call waits for synthesis readiness and then appends
+  /// one link to [_speechChain], completing when *this* sentence has finished
+  /// playing; a failure is swallowed into a `tts` log line, never into a broken
+  /// chain, because the next sentence still has to play.
+  ///
+  /// The wait is what makes the cold-start rule hold: a sentence is said when
+  /// the engine can say it, and it is dropped with a `speak_dropped` log line
+  /// when the budget runs out — never silently, and never spoken long after the
+  /// operator gave up waiting. An engine that has settled as unavailable is not
+  /// waited for at all: the existing refusal path reports it exactly as before.
   @override
-  Future<void> speak(String text) {
+  Future<void> speak(String text) async {
+    if (!await _awaitSynthesis()) {
+      logEvent('tts', {
+        'kind': 'speak_dropped',
+        'reason': 'engine_not_ready',
+        'length': text.length,
+      });
+      return;
+    }
+
     if (_speechPending > 0) {
       logEvent('tts', {
         'kind': 'queued',

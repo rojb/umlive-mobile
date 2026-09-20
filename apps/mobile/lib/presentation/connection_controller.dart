@@ -83,6 +83,13 @@ class ConnectionController extends ChangeNotifier {
   /// The normalized address currently in use, or null when nothing is stored.
   BackendAddress? get address => _address;
 
+  /// The active profile's identifier, or null when nothing is connected.
+  ///
+  /// Read by the drain (`T16`) so the queue it drains and the profile that owns
+  /// it are the same fact — the alternative would be a second source of truth
+  /// for the active profile, which `docs/architecture.md` §10 forbids.
+  String? get profileId => _profile?.id;
+
   /// The state `FR-MA05` puts on screen.
   ReachabilityState get reachability => _reachability;
 
@@ -156,12 +163,31 @@ class ConnectionController extends ChangeNotifier {
   /// out of sync.
   OperationExecutor buildExecutor() => ReachabilityOperationExecutor(
     OutboxOperationExecutor(
-      HttpOperationExecutor(() => _address?.base, () => _token),
+      _buildHttpExecutor(),
       _outbox,
       () => _profile?.id,
     ),
     reportOperationOutcome,
   );
+
+  /// The executor a **replay** goes through: the same transport and the same
+  /// reachability reporting, deliberately **without** the outbox decorator.
+  ///
+  /// A drain that fails must not enqueue a second row: the item is already in
+  /// the queue, and a fresh row would carry a fresh idempotency key, which is
+  /// exactly the duplicate `FR-MD09` exists to prevent. [buildExecutor] keeps
+  /// the full stack for the conversation; this one is for `T16`'s
+  /// `OutboxDrainer`.
+  OperationExecutor buildReplayExecutor() => ReachabilityOperationExecutor(
+    _buildHttpExecutor(),
+    reportOperationOutcome,
+  );
+
+  /// The one layer that makes a request, shared by both stacks so the transport
+  /// construction cannot drift between the conversation and a replay. The
+  /// address and token closures are re-read on every call, never captured.
+  HttpOperationExecutor _buildHttpExecutor() =>
+      HttpOperationExecutor(() => _address?.base, () => _token);
 
   /// Revises the reachability state from the outcome of a real operation call
   /// (`FR-MD01`, `T15`).

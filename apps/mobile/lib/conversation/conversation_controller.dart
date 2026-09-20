@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/log.dart';
+import '../data/outbox_repository.dart';
 import '../l10n/app_localizations_es.dart';
+import '../net/reachability.dart';
 import '../presentation/connection_controller.dart';
 import '../presentation/discovered_scope.dart';
 import 'deterministic_resolver.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
+import 'outbox_drainer.dart';
 import 'pending_write.dart';
 import 'speech_sink.dart';
 import 'turn.dart';
@@ -35,9 +38,15 @@ import 'turn.dart';
 /// write the conversation is assembling or confirming, and the next utterance
 /// is an answer to it rather than a new command. The resolver stays stateless
 /// and receives that write as a parameter.
+///
+/// It also triggers the automatic drain (`T16`). When reachability returns to
+/// [ReachabilityState.connected] it starts one [OutboxDrainer] run and reports
+/// every outcome as its own turn (`FR-MD04`, `FR-MD08`); sending is the
+/// drainer's, so this class never touches the queue itself.
 class ConversationController extends ChangeNotifier {
   ConversationController(
     ConnectionController connection, {
+    required OutboxRepository outbox,
     OperationResolver? resolver,
     SpeechSink? speech,
   }) : _connection = connection,
@@ -47,6 +56,21 @@ class ConversationController extends ChangeNotifier {
        // `BackendProbe` when the caller does not hand it one.
        _resolver = resolver ?? const DeterministicOperationResolver(),
        _executor = connection.buildExecutor() {
+    // The queue the drain sends from. Assigned here for the same reason
+    // `_speech` is: the drainer reads it, and the initializer list cannot
+    // reference it through `this`.
+    _outbox = outbox;
+    // The drain is built from the connection's public surface and nothing else:
+    // a live profile id, the outbox-free replay executor, the live registry,
+    // and `FR-MD01`'s *the backend answered*.
+    _drainer = OutboxDrainer(
+      outbox: _outbox,
+      profileIdOf: () => connection.profileId,
+      executorOf: connection.buildReplayExecutor,
+      registryOf: () => connection.apiRegistry,
+      isReachable: () =>
+          connection.reachability == ReachabilityState.connected,
+    );
     // The voice layer implements the port; `AppServices` hands over the app's
     // one `VoiceController`. Null means the conversation is silent — capture
     // and resolution still work, which is what makes the sink optional.
@@ -60,8 +84,16 @@ class ConversationController extends ChangeNotifier {
   static const String _greetingId = 'greeting';
 
   final ConnectionController _connection;
+
+  /// The durable queue (`T16`). The drain sends from it, and `T18`'s queue
+  /// screen will read the same repository.
+  late final OutboxRepository _outbox;
   final OperationResolver _resolver;
   final OperationExecutor _executor;
+
+  /// The drain of the durable queue (`T16`). Built here because this class is
+  /// what knows when reachability returns and what to say about the outcome.
+  late final OutboxDrainer _drainer;
 
   /// The voice layer, or null when the conversation speaks nothing. Held as
   /// the [SpeechSink] port so nothing here can reach the engine, the voice or
@@ -260,7 +292,100 @@ class ConversationController extends ChangeNotifier {
     );
   }
 
-  void _onConnectionChanged() => _syncGreeting();
+  void _onConnectionChanged() {
+    _syncGreeting();
+    _maybeStartDrain();
+  }
+
+  /// Starts one automatic drain when the backend is reachable (`FR-MD04`).
+  ///
+  /// Fire-and-forget: catching up on the queue must never hold the frame that
+  /// reported the state. The guard is read synchronously here, before the run's
+  /// first `await`, so a drain that answers an operation cannot retrigger
+  /// itself through the reachability notification its own result produces.
+  void _maybeStartDrain() {
+    if (_connection.reachability != ReachabilityState.connected) return;
+    if (_drainer.isDraining) return;
+    unawaited(
+      _drain().catchError((Object error) {
+        // The drainer never throws for an ordinary outcome; anything that
+        // reaches here is not one, and a fire-and-forget future must still not
+        // become an unhandled error.
+        logEvent('outbox', <String, Object?>{
+          'action': 'drain',
+          'step': 'error',
+          'reason': error.runtimeType.toString(),
+        });
+      }),
+    );
+  }
+
+  Future<void> _drain() async {
+    final report = await _drainer.drain();
+    _reportDrain(report);
+  }
+
+  /// Reports every drained item as its own turn (`FR-MD08`).
+  ///
+  /// One assistant turn per outcome, resolved for a send and failed for a
+  /// refusal, so a replay that fails is surfaced rather than silently dropped.
+  /// The queued turn that promised the write keeps its own text — history is
+  /// history — and this new turn says what finally happened to it. Linking the
+  /// outcome back onto that original turn would be a presentation improvement
+  /// for a later task, and nothing here fakes that link.
+  void _reportDrain(DrainReport report) {
+    if (report.outcomes.isEmpty) return;
+    for (final outcome in report.outcomes) {
+      final text = _drainText(outcome);
+      _turns.add(
+        AssistantTurn(
+          id: _newId(),
+          timestamp: DateTime.now(),
+          text: text,
+          status: outcome is DrainSent
+              ? TurnStatus.resolved
+              : TurnStatus.failed,
+        ),
+      );
+      // The queued promise was made aloud, so keeping it is said aloud too:
+      // the sentence that promised the write would go to the queue was spoken
+      // as it settled, and this is the sentence that closes it. Same
+      // fire-and-forget path a settled outcome uses — an outcome turn is an
+      // assistant turn like any other (§19) — issued per outcome in the order
+      // the report carries them, and the speech layer already serializes, so
+      // two outcomes in one run are heard in sequence.
+      _speak(text, kind: 'turn');
+    }
+    notifyListeners();
+  }
+
+  /// The copy for one drained item.
+  ///
+  /// Chosen by the item's kind, by whether the registry gave it a domain word,
+  /// and by whether the backend answered with a status — never built here. An
+  /// item that belongs to no entity of the current registry gets the honest
+  /// generic sentence instead of a name nothing can supply.
+  String _drainText(DrainOutcome outcome) {
+    final entity = outcome.entityName;
+    final create = outcome.kind == OutboxKind.create;
+    switch (outcome) {
+      case DrainSent():
+        if (entity == null) return _l10n.outboxItemSentGeneric;
+        return create
+            ? _l10n.outboxCreateSent(entity)
+            : _l10n.outboxDeleteSent(entity);
+      case DrainFailed(:final statusCode):
+        if (entity == null) return _l10n.outboxItemOrphanFailed;
+        if (create) {
+          return statusCode == null
+              ? _l10n.outboxCreateFailedNoAnswer(entity)
+              : _l10n.outboxCreateFailedStatus(entity, statusCode);
+        }
+        return statusCode == null
+            ? _l10n.outboxDeleteFailedNoAnswer(entity)
+            : _l10n.outboxDeleteFailedStatus(entity, statusCode);
+    }
+  }
 
   /// Synthesizes the greeting the same way the old widget-level special case
   /// did — `l10n.assistantGreeting` with no registry, `scopeGreeting`

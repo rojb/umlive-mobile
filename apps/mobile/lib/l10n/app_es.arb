@@ -870,5 +870,81 @@
   "voiceDebugLogNote": "Las líneas [umlive][stt] y [umlive][tts] del registro del dispositivo son la evidencia de esta pantalla.",
   "@voiceDebugLogNote": {
     "description": "Names the log areas a reviewer should read. A microphone cannot be checked from a screenshot, so the log is the verification surface."
+  },
+
+  "outboxCreateSent": "Se envió el alta pendiente de {entity}.",
+  "@outboxCreateSent": {
+    "description": "T16, FR-MD04: a queued create was replayed and the backend accepted it, so the promise the app made is kept and it is said. The entity is the registry's own word for the record. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "outboxDeleteSent": "Se envió el borrado pendiente de {entity}.",
+  "@outboxDeleteSent": {
+    "description": "T16, FR-MD04: a queued delete was replayed and the backend accepted it, so the promise the app made is kept and it is said. The entity is the registry's own word for the record. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "outboxCreateFailedNoAnswer": "No se pudo enviar el alta pendiente de {entity}: el backend no respondió, así que queda en la cola.",
+  "@outboxCreateFailedNoAnswer": {
+    "description": "T16, FR-MD08: a replayed create got no answer, so the outcome is reported with its reason and the item is retained in the queue for retry or cancellation — never silently discarded. It names no cause it does not know. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "outboxCreateFailedStatus": "No se pudo enviar el alta pendiente de {entity}: el backend respondió con el código {status}. Queda en la cola.",
+  "@outboxCreateFailedStatus": {
+    "description": "T16, FR-MD08: a replayed create was refused with a status, so the outcome names the status and the item stays in the queue, retained for retry or cancellation. T22 replaces the raw status with a sentence derived from the generated errors map. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      },
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "outboxDeleteFailedNoAnswer": "No se pudo enviar el borrado pendiente de {entity}: el backend no respondió, así que queda en la cola.",
+  "@outboxDeleteFailedNoAnswer": {
+    "description": "T16, FR-MD08: a replayed delete got no answer, so the outcome is reported with its reason and the item is retained in the queue for retry or cancellation — never silently discarded. It names no cause it does not know. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "outboxDeleteFailedStatus": "No se pudo enviar el borrado pendiente de {entity}: el backend respondió con el código {status}. Queda en la cola.",
+  "@outboxDeleteFailedStatus": {
+    "description": "T16, FR-MD08: a replayed delete was refused with a status, so the outcome names the status and the item stays in the queue, retained for retry or cancellation. T22 replaces the raw status with a sentence derived from the generated errors map. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      },
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "outboxItemSentGeneric": "Se envió una operación pendiente.",
+  "@outboxItemSentGeneric": {
+    "description": "T16, FR-MD04: the outcome for a queued item whose operation no longer belongs to any entity of the current registry, so no domain word can be said. The honest generic form instead of naming a record the registry cannot name. Neutral register, no tuteo or voseo."
+  },
+
+  "outboxItemOrphanFailed": "Una operación pendiente ya no corresponde a ninguna entidad del backend. Queda en la cola.",
+  "@outboxItemOrphanFailed": {
+    "description": "T16, FR-MD08: the failure for the same case — the queued operation matches no entity of the current registry, so it cannot be replayed and the item is retained in the queue rather than discarded. T22 will refine the reason sentences; this one only has to be honest. Neutral register, no tuteo or voseo."
   }
 }

@@ -153,13 +153,21 @@ final RegExp _placeholderPattern = RegExp(r'\{([^{}]+)\}');
 abstract class OperationExecutor {
   const OperationExecutor();
 
-  /// Calls [operation] with [pathParameters] bound and [body] as the request
-  /// payload, and never throws: every ordinary HTTP outcome, including no
-  /// backend, no network and a non-2xx status, comes back as a result.
+  /// Calls [operation] with [pathParameters] bound, [body] as the request
+  /// payload and [headers] set on the request, and never throws: every
+  /// ordinary HTTP outcome, including no backend, no network and a non-2xx
+  /// status, comes back as a result.
+  ///
+  /// [headers] are **protocol level and never a domain field**: the registry's
+  /// own vocabulary is spelled in the path and the body, and a header is not a
+  /// place any discovered name may be moved to. The only use today is a replay
+  /// carrying the `Idempotency-Key` its first attempt carried (`FR-MD09`). A
+  /// decorator forwards them untouched.
   Future<OperationResult> execute({
     required ApiOperation operation,
     Map<String, String> pathParameters = const <String, String>{},
     Object? body,
+    Map<String, String> headers = const <String, String>{},
   });
 }
 
@@ -193,6 +201,7 @@ class HttpOperationExecutor extends OperationExecutor {
     required ApiOperation operation,
     Map<String, String> pathParameters = const <String, String>{},
     Object? body,
+    Map<String, String> headers = const <String, String>{},
   }) async {
     final base = _addressOf();
     if (base == null) {
@@ -238,6 +247,7 @@ class HttpOperationExecutor extends OperationExecutor {
         uri: uri,
         token: token,
         body: body,
+        headers: headers,
       ).timeout(timeout);
       stopwatch.stop();
 
@@ -249,6 +259,12 @@ class HttpOperationExecutor extends OperationExecutor {
         'status': outcome.status,
         'ms': stopwatch.elapsedMilliseconds,
         'result': failure == OperationFailureKind.none ? 'ok' : failure.name,
+        // Whether the request carried any caller-supplied header, never their
+        // names and never their values. Today the only such header is the
+        // `Idempotency-Key` a replayed write was queued with (`FR-MD09`), so
+        // this one boolean is what lets a device verification tell a first
+        // attempt from a replay while the key itself never reaches the log.
+        'replay': headers.isNotEmpty,
       });
 
       return OperationResult(
@@ -269,6 +285,10 @@ class HttpOperationExecutor extends OperationExecutor {
         'path': resolvedPath,
         'result': 'timeout',
         'ms': stopwatch.elapsedMilliseconds,
+        // The same flag the completed-response line carries: whether the
+        // caller supplied headers, which today means this timeout cut a
+        // replay rather than a first attempt.
+        'replay': headers.isNotEmpty,
       });
       return OperationResult(
         operationKey: operation.key,
@@ -288,6 +308,10 @@ class HttpOperationExecutor extends OperationExecutor {
         'result': 'network_error',
         'error': error.runtimeType.toString(),
         'ms': stopwatch.elapsedMilliseconds,
+        // The same flag the completed-response line carries: whether the
+        // caller supplied headers, which today means this failure cut a
+        // replay rather than a first attempt.
+        'replay': headers.isNotEmpty,
       });
       return OperationResult(
         operationKey: operation.key,
@@ -314,12 +338,20 @@ class HttpOperationExecutor extends OperationExecutor {
     required Uri uri,
     required String? token,
     required Object? body,
+    required Map<String, String> headers,
   }) async {
     final request = await client.openUrl(method, uri);
     // Same budget `BackendProbe` uses for the description path: a tunnel or a
     // reverse proxy may redirect once, and no more.
     request.followRedirects = true;
     request.maxRedirects = 1;
+
+    // Protocol-level headers, set before the body is written. The only caller
+    // today is `T16`'s replay carrying the `Idempotency-Key` its first attempt
+    // carried (`FR-MD09`); a domain field never travels here.
+    for (final entry in headers.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
 
     final bearer = token?.trim() ?? '';
     if (bearer.isNotEmpty) {

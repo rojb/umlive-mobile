@@ -79,6 +79,9 @@ class AppServices {
       voice: voice,
       conversation: ConversationController(
         connection,
+        // The drain (`T16`) sends from the same queue the outbox decorator
+        // writes to; `T18`'s queue screen reads it too.
+        outbox: outbox,
         resolver: const DeterministicOperationResolver(),
         // The conversation speaks through the app's **one** [VoiceController],
         // not through a second object and not through the TTS engine directly:

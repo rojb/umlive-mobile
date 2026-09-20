@@ -760,3 +760,56 @@ target is never inferred.
   switching to *Sin conexión, con datos guardados* on the next call; the cue 1 ms
   after the confirmation with both sentences played in order; and the queue still
   holding its rows across a force-kill.
+
+## 20. The ordered drain (T16)
+
+- **The drain is automatic and needs nobody** (`FR-MD04`). The trigger is the
+  reachability transition itself: `ConnectionController` reports that the backend
+  answered, and the conversation starts a drain if one is not already running. No
+  tap, no retry button, nothing outstanding. Measured cold start, no input at all:
+  `kind=pending count=3` → `action=drain step=start count=3` four seconds later.
+- **Strictly by `seq`, one item at a time, stopping on the first failure.** That
+  is `FR-MD04`'s whole point: a later command can never overtake an earlier one it
+  depends on. The measured run had a queue whose second row was a delete of a
+  record that does not exist, and it behaved exactly as intended — `seq=1`
+  (a create) replayed and was sent, `seq=2` failed with `404`, and `seq=3`/`seq=4`
+  were **never attempted**: the only executor line in the whole run was the
+  delete's, and `step=stop reason=first_failure` fired immediately after it.
+- **A replay never goes through the outbox decorator.** `buildReplayExecutor()`
+  composes the transport with the reachability reporter and **no**
+  `OutboxOperationExecutor`. A replayed write that fails again must not enqueue a
+  second row: the item is already in the queue, and a fresh row would carry a
+  fresh idempotency key, which is precisely the duplicate `FR-MD09` exists to
+  prevent. The measured run shows zero `action=enqueue` lines.
+- **A create is replayed with the key it was queued with.** `execute` gained an
+  optional protocol-level `headers` parameter for exactly this, and the executor's
+  log line carries `replay=true|false` so a first attempt and a replay are
+  distinguishable on the device without any secret reaching the log. Measured:
+  `POST_/api/cliente … status=201 … replay=true` then
+  `DELETE_/api/cliente/{id} … status=404 … replay=false`.
+- **A failed replay is reported with its reason and retained** (`FR-MD08`), never
+  silently discarded: the row keeps its place with `attempts` incremented, the
+  turn says which pending operation failed and with which status code, and the
+  next drain retries the same head. A failed row counts as outstanding — measured
+  `remaining=3` for one failed row plus two never attempted — because the operator
+  is still owed it. `FR-MD10`'s backoff is deliberately not implemented yet: the
+  retry cadence today is the reachability transition.
+- **The outcome is spoken, and that cost two more fixes in this task.** Every
+  sentence in the assistant's voice is spoken (§19), so the drain's outcome turns
+  are spoken too — the promise was made aloud, so keeping it is said aloud. Two
+  defects were found by measuring instead of assuming: the outcome turns were
+  appended without being spoken at all, and a sentence arriving during a cold
+  start was **refused and lost** because the drain fires seconds before the
+  offline voice is pinned (`result=refused reason=no_offline_voice`, then
+  `kind=speak_failed`, and nothing retried it). `VoiceController.speak` now waits
+  for synthesis readiness within an 8 s budget and drops the sentence with a
+  visible `kind=speak_dropped` line if the budget expires. Re-measured cold start:
+  `action=spoke kind=turn length=108` at 13:35:30.667, voice pinned and
+  `kind=init result=ready` at 13:35:31.444, and `kind=speak result=started` with
+  zero `refused`, zero `speak_failed`, zero `speak_dropped`.
+- **Reading `result=started` correctly.** That line is written when playback
+  **finishes** (`awaitSpeakCompletion(true)`), so the observed 9.7 s gap between
+  readiness and the line is the length of a 108-character sentence, not a wait
+  (the earlier 83-character sentence took 7.4 s at the same rate). A future
+  verification that reads that gap as latency will think the engine is slow when
+  it is only talking.
