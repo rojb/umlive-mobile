@@ -174,29 +174,14 @@
     }
   },
 
-  "queueFailedNoAnswer": "El backend no respondió.",
-  "@queueFailedNoAnswer": {
-    "description": "T18, FR-MD08: the reason for a failed queue item when the backend gave no answer at all, derived from the stable code the drain persisted. The reason is said in domain language and never as a stored string. Impersonal register: no tuteo and no voseo."
-  },
-
-  "queueFailedStatus": "El backend respondió con el código {status}.",
-  "@queueFailedStatus": {
-    "description": "T18, FR-MD08: the reason for a failed queue item when the backend refused it with a status. The code is a protocol fact the operator needs in order to retry or discard; T22 replaces it with a sentence derived from the generated errors map. Impersonal register: no tuteo and no voseo.",
-    "placeholders": {
-      "status": {
-        "type": "int"
-      }
-    }
-  },
-
   "queueFailedRejected": "El backend rechazó la operación.",
   "@queueFailedRejected": {
-    "description": "T18, FR-MD08: the reason for a failed queue item whose stored code is the bare `rejected` a row the drain (T16) wrote before T18 stored the status beside the code, so the status of the refusal is not in the row. It is deliberately vaguer than queueFailedStatus, which cannot be said here without inventing a code the row does not carry. Impersonal register: no tuteo and no voseo."
+    "description": "T18, FR-MD08, kept by T22: the reason a failed queue item gets when its stored code is the bare `rejected` a row the drain (T16) wrote before the status was persisted beside it, so the row does not say which status the backend refused with. T22's error_sentences.dart replayErrorSentence emits this string for that row and for a stored code this build cannot parse: it is deliberately vaguer than the refusal-with-code sentence, which cannot be said without inventing a code the row does not carry. Impersonal register: no tuteo and no voseo."
   },
 
   "queueFailedOrphan": "Esa operación ya no existe en el backend.",
   "@queueFailedOrphan": {
-    "description": "T18, FR-MD08: the reason for a failed queue item whose operation the current registry no longer publishes, so it cannot be replayed. Impersonal register: no tuteo and no voseo."
+    "description": "T18, FR-MD08, kept by T22: the reason for a failed queue item whose operation the current registry no longer publishes, so it cannot be replayed. T22's error_sentences.dart replayErrorSentence emits it for the stored code `operation_not_in_registry`, which is a fact of its own and not a status a replay could report. Impersonal register: no tuteo and no voseo."
   },
 
   "queueDiscard": "Descartar",
@@ -691,16 +676,6 @@
     }
   },
 
-  "conversationReadFailed": "No se pudo leer {entity}: el backend no respondió correctamente.",
-  "@conversationReadFailed": {
-    "description": "T12: the failed read, for a call that ran and did not come back 2xx. It states only that the read failed, without inventing a cause: T22 replaces this with sentences derived from the status and the keys of the generated errors map. Neutral register, no tuteo or voseo.",
-    "placeholders": {
-      "entity": {
-        "type": "String"
-      }
-    }
-  },
-
   "conversationReadUnreadable": "El backend respondió a la consulta de {entity}, pero el contenido no tiene la forma esperada.",
   "@conversationReadUnreadable": {
     "description": "T12: the read succeeded with a body whose shape is not the one the intent expects — a collection read that is not an array, a single-record read that is not an object, or an empty body. It says the response was unreadable rather than reporting a count it does not have. Neutral register, no tuteo or voseo.",
@@ -796,7 +771,7 @@
 
   "conversationWriteFailed": "No se pudo crear el registro de {entity}: el backend no respondió correctamente.",
   "@conversationWriteFailed": {
-    "description": "T13: the failed create, for a call that ran and did not come back 2xx, or that never reached the backend. It states only that it failed, without inventing a cause: T22 replaces it with sentences derived from the status and the keys of the generated errors map. Neutral register, no tuteo or voseo.",
+    "description": "T13: the two internal guard paths of _submitWrite, and only those. T22 moved every sentence about a backend outcome onto error_sentences.dart's errorSentence, so a refusal the backend sent no longer reaches this string. What is left is a draft the app could not convert or that was incomplete when it was submitted — a failure with no HTTP outcome at all, so there is no status and no errors map to derive a sentence from, and claiming one would be a diagnosis the app does not have. Neutral register, no tuteo or voseo.",
     "placeholders": {
       "entity": {
         "type": "String"
@@ -863,16 +838,6 @@
     "description": "T14: the word that travels with the schedule icon on a queued turn. The UX spec forbids carrying the queued state in colour alone, so the mark is an icon and this word together (FR-MG04, architecture §4)."
   },
 
-  "conversationDeleteFailed": "No se pudo eliminar el registro de {entity}: el backend no respondió correctamente.",
-  "@conversationDeleteFailed": {
-    "description": "T13b: the failed delete, for a call that ran and did not come back 2xx, or that never reached the backend. It states only that it failed, without inventing a cause: T22 replaces it with sentences derived from the status and the keys of the generated errors map. A failed delete must never sound like a success. Neutral register, no tuteo or voseo.",
-    "placeholders": {
-      "entity": {
-        "type": "String"
-      }
-    }
-  },
-
   "conversationDeleteNoTarget": "No se puede eliminar un registro de {entity} sin saber cuál: hace falta indicar el identificador.",
   "@conversationDeleteNoTarget": {
     "description": "T13b: refusal when the utterance asked to delete but named no target (FR-MC05), and also when the delete operation declares no path parameter to carry one. A delete target is never inferred from an ambiguous or incomplete utterance, and this is the sentence that says so instead of guessing. Neutral register, no tuteo or voseo.",
@@ -891,6 +856,76 @@
         "type": "String"
       }
     }
+  },
+
+  "errorFieldsRejected": "El backend rechazó estos campos: {fields}.",
+  "@errorFieldsRejected": {
+    "description": "T22, FR-ME05: the sentence for a refusal whose body carried the generated ApiExceptionHandler's errors map. Only the keys of that map are named, never the message text beside them, because the text is Bean Validation copy localised by the backend's own JVM locale and is not a stable contract. The keys are joined with the app's list connectors, so a list of fields reads the way every other list in the app reads. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "fields": {
+        "type": "String"
+      }
+    }
+  },
+
+  "errorNotFound": "No se encontró el registro de {entity}.",
+  "@errorNotFound": {
+    "description": "T22, FR-ME05: the sentence for a 404 — a record the backend does not have. It names the entity the call was about, which is the only domain word the app has for the missing record. Deliberately no article before the entity name: Spanish gender is not derivable from the schema, so the sentence has to be right for cliente and for dirección alike. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "errorNotFoundGeneric": "No se encontró el registro.",
+  "@errorNotFoundGeneric": {
+    "description": "T22, FR-ME05: the entity-free form of errorNotFound, for when there is no domain word to name. T22's error_sentences.dart uses it for a queued item whose operation the current registry no longer publishes while the row still carries the 404 the backend answered with: the refusal is still true, but the registry can no longer supply an entity to put in it. Impersonal register: no tuteo and no voseo."
+  },
+
+  "errorConflict": "La operación entra en conflicto con los datos que ya existen.",
+  "@errorConflict": {
+    "description": "T22, FR-ME05: the sentence for a 409. It names no field and no record because a conflict is about the state of the data rather than about either one: the request was well formed and what it refers to already exists or is already what it would become. It is a nameable cause, which is why it is not answered with the status code alone. Impersonal register: no tuteo and no voseo."
+  },
+
+  "errorClient": "El backend rechazó la operación con el código {status}.",
+  "@errorClient": {
+    "description": "T22, FR-ME05: the sentence for any 4xx other than 404 and 409, and the generic refusal for a status this build does not classify. It carries the code because nothing more specific is left to say and the number is what the operator can report back; an invented cause would be worse. It never reports a Bean Validation message, because that text is not a stable contract. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "errorServer": "El backend respondió con un error propio (código {status}).",
+  "@errorServer": {
+    "description": "T22, FR-ME05: the sentence for a 5xx, kept distinct from errorClient because it says something different to whoever reads it — the request was not refused, the backend failed on its own. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "errorNoAnswer": "No se pudo alcanzar el backend para {entity}.",
+  "@errorNoAnswer": {
+    "description": "T22, FR-ME05: the sentence for a call that produced no answer at all — a timeout or a transport failure — and for a failure with no status to report. It names the entity so the sentence says what could not be done, and it claims no cause beyond reachability, because a call that never got an answer is not a refusal. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "errorNoAnswerGeneric": "No se pudo alcanzar el backend.",
+  "@errorNoAnswerGeneric": {
+    "description": "T22, FR-ME05: the entity-free form of errorNoAnswer, for when there is no domain word to name — a queued item whose operation the current registry no longer publishes and whose replay got no answer. Impersonal register: no tuteo and no voseo."
+  },
+
+  "errorNoBackend": "Todavía no hay ningún backend conectado.",
+  "@errorNoBackend": {
+    "description": "T22, FR-ME05: the sentence for a call that never left because no address is stored. It is a state of the app and not of the network, which is why it does not borrow errorNoAnswer, and it mirrors the headline the Connect screen already shows for the same state. Impersonal register: no tuteo and no voseo."
   },
 
   "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",

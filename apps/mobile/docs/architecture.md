@@ -1128,3 +1128,33 @@ target is never inferred.
   exercised: the authorized sequence took a live list in between, which legitimately
   repopulated the cache. The clearing itself is evidenced by the `action=clear
   reason=after_write` line at the moment of the write.
+
+## 27. Errors become sentences (T22)
+
+- **One mapper, and it reads keys and never messages.** `lib/conversation/error_sentences.dart`
+  turns a failure into a sentence. `FR-ME05` says to use the field **keys** of the
+  generated `ApiExceptionHandler`'s `errors` map, and the reason is not stylistic:
+  Bean Validation's message text is localised by the JVM's locale, so it is not a
+  stable contract while the field names are the schema's own.
+- **The order of the branches is the order of specificity:** the field keys first
+  (the backend named exactly what it rejected, and the sentence lists them with the
+  app's own list connectors), then `404` (the record is not there), then `409` (a
+  conflict with the data that already exists), then any other `4xx` with its code,
+  then a `5xx` as the backend's own error, then a timeout or a transport failure as
+  "the backend could not be reached", then the no-backend case, and a generic
+  refusal for anything else without a status.
+- **The same facts get the same sentence on both paths.** The queue screen's failed
+  item is mapped by the second entry point of the same file, from the stable code
+  the drain stored (`no_answer`, `rejected:<status>`, `operation_not_in_registry`),
+  so a replay that got a `404` reads *"No se encontró el registro de cliente."* and
+  a replay that got a `500` reads the backend's own error — not a status code
+  handed to the operator as a diagnosis.
+- **Two places keep a generic sentence on purpose.** The resolver's
+  `incomplete_on_submit` and `convert_on_submit` guards never reached the backend,
+  so they have no status and no `errors` map to read; synthesising one would make the
+  app blame the network for its own local refusal, which is the class of false
+  sentence `T18` had to correct once already. The queue keeps its two special codes:
+  a legacy row whose status was lost, and an operation the current registry no longer
+  publishes.
+- **Four keys were deleted** because the mapper replaced them at their only call
+  sites, so no copy is left describing a sentence nothing can say.

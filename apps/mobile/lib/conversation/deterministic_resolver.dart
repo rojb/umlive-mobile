@@ -40,6 +40,7 @@ import '../core/text_fold.dart';
 import '../l10n/app_localizations.dart';
 import '../openapi/registry.dart';
 import '../presentation/discovered_scope.dart';
+import 'error_sentences.dart';
 import 'field_value.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
@@ -279,13 +280,15 @@ class DeterministicOperationResolver implements OperationResolver {
     final cacheAge = result.fromCache ? result.cacheAge : null;
 
     if (cacheAge == null && !result.succeeded) {
-      // The call ran and the backend did not answer correctly. `T22` replaces
-      // this sentence with one derived from the status and the `errors` keys;
-      // the evidence travels with the turn either way.
+      // The call ran and the backend did not answer correctly. The sentence is
+      // `T22`'s: one mapper (`error_sentences.dart`) turns the status and the
+      // **keys** of the generated `errors` map into copy, and it is the same
+      // mapper the queue screen uses, so one fact is never told two ways. The
+      // evidence travels with the turn either way, unchanged.
       return _finish(
         utteranceLength: length,
         result: _resultRead,
-        replyText: l10n.conversationReadFailed(name),
+        replyText: errorSentence(l10n, entity: name, result: result),
         status: TurnStatus.failed,
         intent: intent,
         entity: name,
@@ -1489,13 +1492,15 @@ class DeterministicOperationResolver implements OperationResolver {
 
     // The call ran and the backend answered with an error, so the record is not
     // known to be gone and the queue is not a fallback: the outbox keeps a write
-    // the backend never received, and this one was received. `T22` replaces this
-    // sentence with one derived from the status and the `errors` keys; the
-    // evidence travels with the turn either way.
+    // the backend never received, and this one was received. The sentence is
+    // `T22`'s, derived from the status and the **keys** of the generated
+    // `errors` map — never from its message text, which the backend's JVM
+    // locale localises and which is therefore not a contract. The evidence
+    // travels with the turn either way.
     return _finish(
       utteranceLength: utteranceLength,
       result: _resultWrite,
-      replyText: l10n.conversationDeleteFailed(entityName),
+      replyText: errorSentence(l10n, entity: entityName, result: result),
       status: TurnStatus.failed,
       intent: _intentDelete,
       entity: entityName,
@@ -1528,6 +1533,14 @@ class DeterministicOperationResolver implements OperationResolver {
       // Unreachable by construction: confirming is entered only once nothing
       // is missing. `FR-MC02` forbids a partial body, so refuse rather than
       // build one.
+      //
+      // This one keeps the generic sentence, and it is the reason that key is
+      // still in the ARB after `T22`. No call was made, so there is no
+      // `OperationResult` for `errorSentence` to read: no status, no
+      // `errors` map, and therefore no backend outcome to describe. Mapping it
+      // would mean inventing one, and a sentence that diagnoses the network for
+      // a draft the app refused to build is the kind of false claim `T18`
+      // already had to correct once on the queue screen.
       return _finish(
         utteranceLength: utteranceLength,
         result: _resultWrite,
@@ -1543,7 +1556,11 @@ class DeterministicOperationResolver implements OperationResolver {
     }
 
     // Every captured value was converted when it was captured, so a failure
-    // here is a bug: report a failed submit, keep the draft, and say so.
+    // here is a bug: report a failed submit, keep the draft, and say so. The
+    // generic sentence is kept for the same reason as the guard above — the
+    // app never reached the backend, so `T22`'s mapper has no
+    // `OperationResult` to turn into a sentence and inventing one would blame
+    // the backend for a local conversion failure.
     final body = <String, Object?>{};
     // Every field the body declares, not only the required ones: a value the
     // operator volunteered for an optional field is part of the record and is
@@ -1633,11 +1650,14 @@ class DeterministicOperationResolver implements OperationResolver {
     // and the queue is deliberately not a fallback here: the outbox keeps a
     // write the backend **never received**, and this request was received, so
     // replaying it would duplicate work the backend already saw. The draft is
-    // dropped and the failure is reported with its evidence.
+    // dropped and the failure is reported with its evidence, in `T22`'s
+    // sentence: the status and the **keys** of the generated `errors` map,
+    // never its message text, because that text is JVM-locale copy and not a
+    // contract.
     return _finish(
       utteranceLength: utteranceLength,
       result: _resultWrite,
-      replyText: l10n.conversationWriteFailed(entityName),
+      replyText: errorSentence(l10n, entity: entityName, result: result),
       status: TurnStatus.failed,
       intent: _intentCreate,
       entity: entityName,

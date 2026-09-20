@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
 import '../../conversation/conversation_controller.dart';
+import '../../conversation/error_sentences.dart';
 import '../../data/outbox_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../openapi/registry.dart';
@@ -232,8 +233,20 @@ class _QueueItemCard extends StatelessWidget {
             // The reason, in domain language. No second `error_outline` mark:
             // the chip above already carries the state as a word and an icon,
             // and repeating the icon here would make one fact look like two.
+            //
+            // The sentence is `T22`'s, and it comes from the **mapper** every
+            // other failure surface uses (`conversation/error_sentences.dart`),
+            // not from a table of reasons kept here: one fact told once. What
+            // this screen supplies is the two things only it has — the stable
+            // code the drain stored in the row, and the entity it already
+            // resolved for the item's own label, which is null exactly when the
+            // item's operation left the registry and no domain word exists.
             Text(
-              _failureReason(l10n, item.lastError),
+              replayErrorSentence(
+                l10n,
+                entity: entityName,
+                storedReason: item.lastError,
+              ),
               style: textTheme.bodySmall?.copyWith(color: AppColors.danger),
             ),
           ],
@@ -444,41 +457,4 @@ String _recordIdFor(ApiRegistry? registry, OutboxItem item) {
   }
   final values = item.pathParameters.values;
   return values.isEmpty ? '' : values.first;
-}
-
-/// The reason a failed item carries, in domain language.
-///
-/// It is derived from the **stable code** in `outbox.last_error` and never from
-/// the stored string itself. The four codes it knows are the schema's contract
-/// with the drain (`T16`) **and with its history**, and each one has to be
-/// named for what it actually says: `no_answer` when the backend never
-/// answered, `rejected:<status>` when it answered outside 2xx, the bare
-/// `rejected` a row written before the status was persisted beside the code
-/// carries — a refusal, and deliberately not a *no answer*, because the
-/// backend did answer and the row only lost which code it answered with — and
-/// `operation_not_in_registry` when the current registry no longer publishes
-/// the operation.
-///
-/// The row is the only thing that survives, so this mapping is what lets the
-/// screen name the reason months later — and a code this build cannot parse
-/// gets the least specific sentence rather than an invented status or an
-/// invented orphaning.
-String _failureReason(AppLocalizations l10n, String? code) {
-  if (code == null) return l10n.queueFailedNoAnswer;
-  final separator = code.indexOf(':');
-  final kind = separator == -1 ? code : code.substring(0, separator);
-  final value = separator == -1 ? null : code.substring(separator + 1);
-  switch (kind) {
-    case 'no_answer':
-      return l10n.queueFailedNoAnswer;
-    case 'operation_not_in_registry':
-      return l10n.queueFailedOrphan;
-    case 'rejected':
-      final status = value == null ? null : int.tryParse(value);
-      if (status != null) return l10n.queueFailedStatus(status);
-      // The status is not in the row, so it cannot be reported: the sentence
-      // says the refusal without inventing the code it came with.
-      return l10n.queueFailedRejected;
-  }
-  return l10n.queueFailedNoAnswer;
 }
