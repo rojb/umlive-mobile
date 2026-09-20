@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 /// `adb logcat -d | grep umlive` a complete trace of what the app did.
 ///
 /// Areas in use: `app`, `profile`, `address`, `probe`, `registry`, `voice`,
-/// `stt`, `tts`.
+/// `stt`, `tts`, `conversation`, `resolver`, `executor`.
 ///
 /// Never pass a secret here: the bearer token is logged as `present`/`absent`,
 /// never by value.

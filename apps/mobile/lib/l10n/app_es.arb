@@ -6,7 +6,7 @@
     "description": "App name. Shown in the Assistant app bar and used as the task-switcher title. Not a translatable word, but it still lives here because no user-facing string may be hard-coded in Dart."
   },
 
-  "assistantGreeting": "Hola, soy UMLive Voice. Puedo trabajar con tu backend por voz.",
+  "assistantGreeting": "Hola, soy UMLive Voice. Puedo trabajar con el backend por voz.",
   "@assistantGreeting": {
     "description": "First assistant turn, shown when the conversation area is empty. T3 replaces the capability sentence with one derived from the discovered schema; until then it states the intent only."
   },
@@ -21,7 +21,7 @@
     "description": "Screen-reader label for the capture control while the voice engine is not ready. FR-MG03/FR-MG04: every control announces its own state, and the caption alone is not enough because the orb carries no text."
   },
 
-  "captureIdleCaption": "Toca para hablar",
+  "captureIdleCaption": "Listo para escuchar",
   "@captureIdleCaption": {
     "description": "Caption under the capture orb once the engine is ready, the microphone permission is granted, and nothing is being captured yet."
   },
@@ -31,32 +31,32 @@
     "description": "Empty-state label of the live transcript while listening and no partial has arrived yet."
   },
 
-  "captureOrbSemanticsReady": "Control de captura de voz. Toca para hablar.",
+  "captureOrbSemanticsReady": "Control de captura de voz. Listo para escuchar. Tocar para hablar.",
   "@captureOrbSemanticsReady": {
     "description": "Screen-reader label for the capture control when it is armed and idle."
   },
 
-  "captureOrbSemanticsListening": "Control de captura de voz. Escuchando. Toca para detener.",
+  "captureOrbSemanticsListening": "Control de captura de voz. Escuchando. Tocar de nuevo para detener.",
   "@captureOrbSemanticsListening": {
     "description": "Screen-reader label for the capture control while the microphone is open."
   },
 
-  "captureOrbSemanticsPermissionNeeded": "Control de captura de voz. Se necesita el permiso del micrófono. Toca para pedirlo.",
+  "captureOrbSemanticsPermissionNeeded": "Control de captura de voz. Se necesita el permiso del micrófono. Tocar para solicitarlo.",
   "@captureOrbSemanticsPermissionNeeded": {
     "description": "Screen-reader label for the capture control when the microphone permission has not been granted yet, or was denied but can still be requested again (FR-MB04)."
   },
 
-  "captureOrbSemanticsPermissionBlocked": "Control de captura de voz. El micrófono está bloqueado para esta aplicación. Abre los ajustes del sistema para habilitarlo.",
+  "captureOrbSemanticsPermissionBlocked": "Control de captura de voz. El micrófono está bloqueado para esta aplicación. Abrir los ajustes del sistema para habilitarlo.",
   "@captureOrbSemanticsPermissionBlocked": {
     "description": "Screen-reader label for the capture control once the microphone permission was permanently denied (FR-MB04)."
   },
 
-  "microphonePermissionRationale": "UMLive Voice necesita acceso al micrófono para escuchar las indicaciones por voz. Toca el micrófono para conceder el permiso.",
+  "microphonePermissionRationale": "UMLive Voice necesita acceso al micrófono para escuchar las indicaciones por voz. Tocar el micrófono para conceder el permiso.",
   "@microphonePermissionRationale": {
     "description": "The FR-MB04 explanation shown in writing before the microphone permission is requested, and spoken through VoiceController.speak at the moment the request is made. Also shown, unchanged, after an ordinary (non-permanent) denial, since it still describes what tapping again will do."
   },
 
-  "microphonePermissionPermanentlyDeniedCaption": "El micrófono está bloqueado para esta aplicación y ya no se puede volver a pedir el permiso desde aquí. Puedes habilitarlo desde los ajustes del sistema, o escribir tu indicación.",
+  "microphonePermissionPermanentlyDeniedCaption": "El micrófono está bloqueado para esta aplicación y ya no se puede volver a pedir el permiso desde aquí. Se habilita desde los ajustes del sistema, o se escribe la indicación.",
   "@microphonePermissionPermanentlyDeniedCaption": {
     "description": "FR-MB04: shown once the microphone permission is permanently denied. States plainly that the app cannot ask again and names the two ways forward, including the text fallback (FR-MB06)."
   },
@@ -66,12 +66,12 @@
     "description": "Button shown alongside microphonePermissionPermanentlyDeniedCaption; opens this app's system settings page."
   },
 
-  "microphoneCaptureFailedCaption": "No se pudo usar el micrófono en este momento. Prueba de nuevo, o escribe tu indicación.",
+  "microphoneCaptureFailedCaption": "No se pudo usar el micrófono en este momento. Se puede intentar de nuevo, o escribir la indicación.",
   "@microphoneCaptureFailedCaption": {
     "description": "Shown when starting capture fails for a reason other than the permission itself (e.g. the device refused to open the microphone), so the caption does not keep claiming the control is simply idle."
   },
 
-  "textFallbackLabel": "Escribe tu indicación",
+  "textFallbackLabel": "Escribir la indicación",
   "@textFallbackLabel": {
     "description": "FR-MB06: label of the text field that is the typed equivalent of every voice action. Always available, including when the microphone permission is denied."
   },
@@ -449,6 +449,21 @@
   "assistantGreetingNoOperations": "Hola, soy UMLive Voice. El backend no publica ninguna operación, así que todavía no hay nada que pueda hacer.",
   "@assistantGreetingNoOperations": {
     "description": "Assistant greeting when the description declares no operations. UX spec Pass 6: state that the backend has no operations instead of showing an empty conversation surface."
+  },
+
+  "conversationPending": "Resolviendo la indicación…",
+  "@conversationPending": {
+    "description": "T11: placeholder text of the assistant turn added the moment a user turn is submitted, shown only while resolution is in flight (TurnStatus.pending) and replaced once it settles. Neutral register, no tuteo or voseo."
+  },
+
+  "conversationNoRegistry": "No hay ningún backend descubierto todavía, así que no puedo hacer nada con esa indicación.",
+  "@conversationNoRegistry": {
+    "description": "T11: ConversationController's own guard when an utterance is submitted with no discovered registry available. Should not normally be reachable, since capture is only offered while a workable registry exists, but the check is real rather than assumed."
+  },
+
+  "conversationResolverNotImplemented": "Todavía no puedo resolver esa indicación: la interpretación de comandos por voz no está implementada en esta versión.",
+  "@conversationResolverNotImplemented": {
+    "description": "T11: UnimplementedOperationResolver's honest placeholder reply, used until T12 (read path) and T13 (write path) supply real resolution. Names plainly that resolution does not exist yet rather than guessing an operation or fabricating an answer (FR-MC04). Neutral register, no tuteo or voseo."
   },
 
   "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",

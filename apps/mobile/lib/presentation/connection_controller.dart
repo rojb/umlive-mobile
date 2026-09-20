@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../conversation/operation_executor.dart';
 import '../core/log.dart';
 import '../data/connection_profile.dart';
 import '../data/profile_repository.dart';
@@ -115,6 +116,18 @@ class ConnectionController extends ChangeNotifier {
   /// True when a bearer token is stored. The value is never exposed: only the
   /// transport layer below this class reads it.
   bool get hasToken => _token != null && _token!.isNotEmpty;
+
+  /// Builds an [OperationExecutor] bound to this controller's live address
+  /// and token (`T11`).
+  ///
+  /// Chosen over adding a public token getter: the token stays a private
+  /// field of this class, and the executor only ever sees the current address
+  /// and token through the two closures below, re-read on every call rather
+  /// than captured once — a reconnect to a different backend or a token
+  /// change is therefore visible to a caller holding an executor built before
+  /// it happened, with no second source of truth to fall out of sync.
+  OperationExecutor buildExecutor() =>
+      OperationExecutor(() => _address?.base, () => _token);
 
   /// True when the active address was accepted *and* is unencrypted, so the
   /// screen owes the user a visible warning (`PRD-MOBILE.md` §7).

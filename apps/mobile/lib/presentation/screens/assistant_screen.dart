@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
+import '../../conversation/turn.dart';
 import '../../l10n/app_localizations.dart';
 import '../../net/reachability.dart';
 import '../../theme/tokens.dart';
-import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/capture_section.dart';
@@ -20,30 +20,25 @@ import '../widgets/voice_status_banner.dart';
 /// visible without navigating away from the conversation, and the app bar is
 /// the one surface that never leaves.
 ///
-/// T8 binds the capture control to the real voice engine (`CaptureSection`):
+/// T8 bound the capture control to the real voice engine (`CaptureSection`):
 /// live amplitude, the live transcript, in-context microphone permission and
-/// the text fallback. What is captured is rendered as a turn here, but
-/// resolving it is Phase C's job — this screen still only shows what was
-/// heard or typed, never what to do about it.
-class AssistantScreen extends StatefulWidget {
+/// the text fallback.
+///
+/// T11 replaced the bare `List<String> _utterances` this screen used to hold
+/// itself, plus the greeting's special case outside it, with
+/// [AppServices.conversation]: the screen renders [ConversationController]'s
+/// chronological turns and no longer keeps any state of its own. Resolving a
+/// turn is still not this screen's job — `T12`/`T13` fill that in behind the
+/// same [ConversationController].
+class AssistantScreen extends StatelessWidget {
   const AssistantScreen({super.key});
-
-  @override
-  State<AssistantScreen> createState() => _AssistantScreenState();
-}
-
-class _AssistantScreenState extends State<AssistantScreen> {
-  final List<String> _utterances = [];
-
-  void _onUtterance(String text) {
-    setState(() => _utterances.add(text));
-  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final connection = AppScope.of(context).connection;
     final voice = AppScope.of(context).voice;
+    final conversation = AppScope.of(context).conversation;
 
     return AppBackground(
       child: Scaffold(
@@ -98,11 +93,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   // Scrollable so the platform's largest font scale grows the
                   // turn instead of clipping it (`FR-MG06`).
                   child: ListenableBuilder(
-                    listenable: connection,
+                    // Both listenables matter here: `connection` decides the
+                    // cannot-work gate below, `conversation` owns the turn
+                    // list itself (`T11`) — including the greeting, which is
+                    // now [turns].first rather than a special case rendered
+                    // outside it.
+                    listenable: Listenable.merge([connection, conversation]),
                     builder: (context, _) {
-                      // T3/T4: the greeting states the discovered scope in
-                      // domain terms (`FR-MC07`). The registry it reads is the
-                      // cached one when the backend did not answer (`FR-MA04`).
                       final registry = connection.apiRegistry;
                       if (registry == null && !connection.isProbing) {
                         // Pass 6, first launch offline with no cached registry:
@@ -117,27 +114,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           ).pushNamed(AppRoutes.connect),
                         );
                       }
-                      final greeting = registry == null
-                          ? l10n.assistantGreeting
-                          : scopeGreeting(l10n, registry);
+                      final turns = conversation.turns;
                       return SingleChildScrollView(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Align(
-                              alignment: Alignment.topLeft,
-                              child: _AssistantTurn(text: greeting),
-                            ),
-                            // What the microphone or the text fallback
-                            // captured, rendered as a plain turn. T8 is
-                            // capture only: resolving these is Phase C's job,
-                            // so nothing here answers or acts on them yet.
-                            for (final utterance in _utterances) ...[
-                              const SizedBox(height: AppSpacing.sm),
-                              Align(
-                                alignment: Alignment.topRight,
-                                child: _UserTurn(text: utterance),
-                              ),
+                            for (var index = 0; index < turns.length; index++) ...[
+                              if (index > 0)
+                                const SizedBox(height: AppSpacing.sm),
+                              _TurnBubble(turn: turns[index]),
                             ],
                           ],
                         ),
@@ -160,7 +145,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     }
                     return CaptureSection(
                       voice: voice,
-                      onUtterance: _onUtterance,
+                      onUtterance: conversation.submitUtterance,
                     );
                   },
                 ),
@@ -171,6 +156,33 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Renders one [ConversationTurn], whichever kind it is.
+///
+/// The sealed hierarchy in `turn.dart` forces this `switch` to cover both
+/// cases; adding a third turn kind later would fail to compile here until it
+/// is handled. Turn status (`TurnStatus.pending` / `resolved` / `failed`) is
+/// carried on [AssistantTurn] already but is not yet distinguished visually —
+/// that lands with the accessibility pass (`T24`, `FR-MG04`), not here.
+class _TurnBubble extends StatelessWidget {
+  const _TurnBubble({required this.turn});
+
+  final ConversationTurn turn;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (turn) {
+      UserTurn(:final text) => Align(
+        alignment: Alignment.topRight,
+        child: _UserTurn(text: text),
+      ),
+      AssistantTurn(:final text) => Align(
+        alignment: Alignment.topLeft,
+        child: _AssistantTurn(text: text),
+      ),
+    };
   }
 }
 
@@ -198,9 +210,9 @@ class _AssistantTurn extends StatelessWidget {
 }
 
 /// A turn produced by the user, whether spoken or typed through the text
-/// fallback (`FR-MB06`): both paths call the same [_AssistantScreenState]
-/// callback and render identically here, because capture does not care which
-/// one produced the utterance.
+/// fallback (`FR-MB06`): both paths feed
+/// [ConversationController.submitUtterance] and render identically here,
+/// because capture does not care which one produced the utterance.
 class _UserTurn extends StatelessWidget {
   const _UserTurn({required this.text});
 

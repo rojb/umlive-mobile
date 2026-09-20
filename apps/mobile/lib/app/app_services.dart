@@ -1,5 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../conversation/conversation_controller.dart';
+import '../conversation/operation_resolver.dart';
 import '../core/log.dart';
 import '../data/app_database.dart';
 import '../data/profile_repository.dart';
@@ -19,6 +21,7 @@ class AppServices {
     required this.registry,
     required this.connection,
     required this.voice,
+    required this.conversation,
   });
 
   final AppDatabase database;
@@ -30,6 +33,11 @@ class AppServices {
   /// Its model is provisioned by `main()` after the first frame, because
   /// copying 126 MB out of the APK must not hold up startup.
   final VoiceController voice;
+
+  /// Owns the conversation's turn list and the resolution seam (`T11`). Built
+  /// against [connection] rather than a second connection state, with
+  /// [UnimplementedOperationResolver] until `T12`/`T13` supply a real one.
+  final ConversationController conversation;
 
   /// Opens storage, wires the repositories and restores the stored profile.
   ///
@@ -57,6 +65,10 @@ class AppServices {
       registry: registry,
       connection: connection,
       voice: VoiceController(),
+      conversation: ConversationController(
+        connection,
+        resolver: const UnimplementedOperationResolver(),
+      ),
     );
   }
 }
