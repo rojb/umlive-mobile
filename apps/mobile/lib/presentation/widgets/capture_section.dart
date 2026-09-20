@@ -253,6 +253,14 @@ class _TextFallback extends StatelessWidget {
       controller: controller,
       enabled: enabled,
       textInputAction: TextInputAction.send,
+      // The fallback carries the operator's own words, and since `T13` an
+      // answer typed here can become a field value of a record. The IME's
+      // autocorrect rewrites that text — measured on the handset, `Perez
+      // Zapata` arrived as `Pérez Pérez Zapata` — so suggestions and
+      // correction are off, the same way `connect_screen` already sets them on
+      // its own fields. What the operator typed is what the app stores.
+      autocorrect: false,
+      enableSuggestions: false,
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: l10n.textFallbackLabel,
