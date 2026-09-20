@@ -43,6 +43,11 @@ import '../widgets/voice_status_banner.dart';
 /// complete record with its two controls, and the draft captured so far. The
 /// question is not also a turn — `ConversationController` drops the
 /// assistant turn while a draft is in flight — so the screen shows it once.
+///
+/// T18 put the queue's count on the app bar. A non-zero queue is a promise the
+/// app made and has not kept, so it is never hidden; an empty one costs zero
+/// attention, so the badge is not drawn at all rather than drawn as a zero
+/// (UX spec Pass 3 and Pass 5).
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
 
@@ -104,11 +109,24 @@ class _AssistantScreenState extends State<AssistantScreen> {
               padding: EdgeInsets.only(right: AppSpacing.sm),
               child: Center(child: ReachabilityIndicator(compact: true)),
             ),
-            IconButton(
-              icon: const Icon(Icons.inbox_outlined),
-              tooltip: l10n.queueTitle,
-              onPressed: () =>
-                  Navigator.of(context).pushNamed(AppRoutes.queue),
+            // Pass 3: "a count badge that is only present when the count is
+            // non-zero". `Badge.count` with `isLabelVisible` false draws the
+            // child alone, so an empty queue leaves the app bar exactly as it
+            // was — no dot, no zero. The number itself is the label, because a
+            // badge that says "something is waiting" does not say how much is
+            // owed.
+            ListenableBuilder(
+              listenable: conversation,
+              builder: (context, _) => Badge.count(
+                count: conversation.queuedCount,
+                isLabelVisible: conversation.queuedCount > 0,
+                child: IconButton(
+                  icon: const Icon(Icons.inbox_outlined),
+                  tooltip: l10n.queueTitle,
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed(AppRoutes.queue),
+                ),
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.settings_outlined),

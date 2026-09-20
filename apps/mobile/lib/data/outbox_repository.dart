@@ -141,9 +141,11 @@ class OutboxRepository {
   /// log gets at most its size.
   static const String _actionEnqueue = 'enqueue';
   static const String _actionInFlight = 'in_flight';
+  static const String _actionPending = 'pending';
   static const String _actionSent = 'sent';
   static const String _actionFailed = 'failed';
   static const String _actionRemove = 'remove';
+  static const String _actionRecover = 'recover';
   static const String _actionUnreadable = 'unreadable';
 
   /// Persists one write and returns the stored item.
@@ -233,6 +235,10 @@ class OutboxRepository {
   /// retry in its original place (`FR-MD04`): a later command can never
   /// overtake an earlier one, which is the whole point of a queue rather than
   /// a set of parallel attempts.
+  ///
+  /// This is the **drain's** view (`T16`): an `inFlight` row is excluded
+  /// because the drain is already sending it. The queue screen reads
+  /// [outstanding] instead, which keeps it in the list.
   Future<List<OutboxItem>> pending(String profileId) async {
     final rows = await database.query(
       'outbox',
@@ -244,10 +250,32 @@ class OutboxRepository {
       ],
       orderBy: 'seq ASC',
     );
-    return <OutboxItem>[
-      for (final row in rows)
-        if (_toItem(row) case final OutboxItem item) item,
-    ];
+    return _decodeRows(rows);
+  }
+
+  /// Every item [profileId] still owes the operator, in issue order.
+  ///
+  /// The same list as [pending] plus the item a drain has taken and is
+  /// sending: an `inFlight` row is still outstanding work, and the queue's
+  /// *draining* state shows it marked in-flight rather than gone (`T18`, UX
+  /// spec Pass 5). [`pending`] stays the drain's own narrower view, so this
+  /// read changes nothing about what a run sends.
+  ///
+  /// Reads log nothing, exactly like [pending] and [pendingCount]: they are
+  /// not state changes.
+  Future<List<OutboxItem>> outstanding(String profileId) async {
+    final rows = await database.query(
+      'outbox',
+      where: 'profile_id = ? AND status IN (?, ?, ?)',
+      whereArgs: <Object?>[
+        profileId,
+        OutboxStatus.pending.name,
+        OutboxStatus.inFlight.name,
+        OutboxStatus.failed.name,
+      ],
+      orderBy: 'seq ASC',
+    );
+    return _decodeRows(rows);
   }
 
   /// How many outstanding items [profileId] has.
@@ -284,6 +312,43 @@ class OutboxRepository {
     _logState(_actionInFlight, item);
   }
 
+  /// Returns every `inFlight` row of [profileId] to `pending`.
+  ///
+  /// **A row cannot still be in flight in a process that has just started.**
+  /// The drain (`T16`) is single-threaded and guarded (`isDraining`), so while
+  /// a run is in progress the only `inFlight` row is the attempt that run is
+  /// making right now; any other one was written by a process that was killed
+  /// mid-send, and it describes a send nobody is making any more. Nothing else
+  /// would ever clear it: [`pending`] — the drain's own view — excludes it, so
+  /// the row would sit in the queue shown as *sending*, never picked up and
+  /// never sent.
+  ///
+  /// Replaying a recovered row is safe by construction. A create carries the
+  /// idempotency key its first attempt carried, so the backend recognises the
+  /// replay as the same create (`FR-MD09`), and a delete is idempotent by
+  /// nature. That is why recovery is a status change and nothing more: no
+  /// attempt happened, so `attempts`, `last_error` and `seq` are all left
+  /// exactly as they were — the count of attempts stays the count of attempts
+  /// that really happened, and a recovered row keeps the place it was issued
+  /// in (`FR-MD04`).
+  ///
+  /// One `action=recover count=N` line is written for the whole call, and it
+  /// is written even when it found nothing: `N` is what tells a reader of
+  /// `adb logcat` that the recovery ran and how much it recovered, which a
+  /// missing line could not distinguish from never having run.
+  Future<void> recoverInFlight(String profileId) async {
+    final recovered = await database.update(
+      'outbox',
+      <String, Object?>{'status': OutboxStatus.pending.name},
+      where: 'profile_id = ? AND status = ?',
+      whereArgs: <Object?>[profileId, OutboxStatus.inFlight.name],
+    );
+    logEvent('outbox', <String, Object?>{
+      'action': _actionRecover,
+      'count': recovered,
+    });
+  }
+
   /// Removes a sent item from the queue.
   ///
   /// A sent item is not outstanding, and the queue holds only outstanding work:
@@ -315,6 +380,28 @@ class OutboxRepository {
       <Object?>[OutboxStatus.failed.name, reason, id],
     );
     _logState(_actionFailed, item, attempts: item.attempts + 1);
+  }
+
+  /// Returns [id] to `pending`, so a retry takes its original place in the
+  /// order (`FR-MD04`, `FR-MD08`).
+  ///
+  /// [OutboxItem.attempts] is deliberately untouched: a retry is the operator
+  /// asking for the item to be tried again, not a new attempt. The attempt is
+  /// counted when it is actually attempted — the drain's [markFailed]
+  /// increments it — and counting the request instead would make the column
+  /// measure taps rather than failures. `last_error` is left as it is, for the
+  /// same reason: it is what happened last time, and the next [markFailed]
+  /// overwrites it with what happens this time.
+  Future<void> markPending(int id) async {
+    final item = await _item(id);
+    if (item == null) return;
+    await database.update(
+      'outbox',
+      <String, Object?>{'status': OutboxStatus.pending.name},
+      where: 'id = ?',
+      whereArgs: <Object?>[id],
+    );
+    _logState(_actionPending, item);
   }
 
   /// Removes [id] from the queue: the cancel path `T18` will use.
@@ -361,6 +448,15 @@ class OutboxRepository {
     if (rows.isEmpty) return null;
     return _toItem(rows.first);
   }
+
+  /// Decodes a query's rows into items, skipping the ones this build cannot
+  /// read. One unreadable row is reported and dropped rather than thrown on:
+  /// the queue is read on the launch path, and a single bad row must not be
+  /// able to take the whole app down with it.
+  List<OutboxItem> _decodeRows(List<Map<String, Object?>> rows) => <OutboxItem>[
+    for (final row in rows)
+      if (_toItem(row) case final OutboxItem item) item,
+  ];
 
   /// One stored row as an [OutboxItem], or null when it cannot be decoded.
   ///

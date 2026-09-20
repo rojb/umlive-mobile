@@ -872,3 +872,67 @@ target is never inferred.
   `action=hit … age_ms=70316` with the age sentence on screen; the never-cached
   record missed and failed honestly; and the write went to the queue with no cache
   line at all.
+
+## 22. The queue screen, and what makes a drain automatic (T18)
+
+- **The screen reads the conversation controller, never the database.** The
+  controller already owns the outbox repository and the drainer, so it also owns
+  the queue's projection (`queueItems`, `queuedCount`, `refreshQueue`,
+  `cancelQueued`, `retryQueued`, `requestDrain`). One owner means the badge, the
+  list and the drain can never disagree about what is outstanding.
+- **Domain language only.** Each item says what it will do (`Alta de pago`,
+  `Borrado del registro 1 de cliente`), never an operation key, a URL path or
+  raw JSON — that is `T23`'s surface, behind its own toggle. Verified on the
+  device: the dump of the screen contains no `/api`, no verb, no braces, no
+  `seq`.
+- **Cancel is individual and happens before it drains** (`FR-MD07`), through
+  **both** affordances the UX spec asks for — a swipe with a revealed destructive
+  action and an explicit control inside the item — and behind one confirmation
+  that says exactly what cancelling means (*"Se quitará de la cola y nunca se
+  enviará."*). A swipe alone is not discoverable, and a destructive action on a
+  list is confirmed, the same way a destructive voice command is.
+- **Retry exists on failed items only** (`FR-MD08`, UX spec: never on a pending
+  one). It returns the row to `pending` **in its original `seq`** — a retry is not
+  a re-issue — and asks for a drain, which the guard refuses while the backend is
+  not known to answer.
+- **A failed row carries its reason, and the reason is never wrong.** The row
+  stores the drain's code (`no_answer`, `rejected:<status>`,
+  `operation_not_in_registry`) and the screen maps it in one function. Rows
+  written before that format existed carry a bare `rejected`, and they say
+  *"El backend rechazó la operación."* rather than *"no respondió"*: that row got
+  a `404`, and saying the backend did not answer would be a false sentence on a
+  visible surface.
+- **A row left `inFlight` by a dead process is recovered, not stranded.**
+  `refreshQueue()` returns every `inFlight` row of the profile to `pending` before
+  it reads: a row cannot still be in flight in a process that has just started,
+  the drain is single-threaded and guarded so an `inFlight` row during a run can
+  only be the current attempt, and replaying a recovered row is safe by
+  construction — a create carries the key its first attempt carried (`FR-MD09`)
+  and a delete is idempotent by nature. Without this the row showed as
+  *"Enviando…"* forever, not cancellable, not retryable and never sent.
+- **The badge exists only when the count is not zero** (UX spec Pass 3): an empty
+  queue costs zero attention, and a badge that is always there teaches the
+  operator to ignore it.
+- **What makes the drain automatic at all — the gap this task had to close.**
+  `FR-MD04` says the queue drains *on reachability returning, with no user
+  action*, and until now nothing ever asked again: the state was only updated by
+  the startup probe, the Connect screen's retry and an operation call. Measured
+  before the fix: 2 m 45 s after the radios and the USB mapping came back, no
+  probe, no drain, the badge still reading 3. The controller now re-probes every
+  20 s while the state is not connected and probes once immediately on resume,
+  with the timer cancelled when the app goes to the background (`T19` decides
+  background survival on purpose, with a foreground service). The radio is still
+  not the signal — the probe is the only thing that changes the state — so
+  `FR-MD01` is untouched. Measured after the fix: restore at `14:40:49`, probe
+  `status=200 state=connected` at `14:41:05` (15.6 s later, on the timer that was
+  already running), `drain step=start count=3` 0.13 s later and the first `POST`
+  0.41 s after the probe; all three replayed with `201`.
+- **Verified on `TFY-LX3`**: four items listed with their intents and chips; the
+  failed one saying *"El backend rechazó la operación."* with *"Intentos: 5"* and
+  the only `Reintentar` on screen; retrying it while offline turning it into
+  *"En cola"* with the retry control gone and the badge unchanged at 4; cancelling
+  it through the explicit control and the confirmation, which left 3 items and a
+  badge of 3; and then the restore above, after which the badge was gone, the
+  screen read *"No hay nada en cola"* and the backend held three `pago` records of
+  `1500`. Between the restore and the drain, **no input command of any kind was
+  issued**.

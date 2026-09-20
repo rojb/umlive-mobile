@@ -118,7 +118,115 @@
 
   "queueEmpty": "No hay nada en cola",
   "@queueEmpty": {
-    "description": "Queue empty state. T18 replaces it with the pending list."
+    "description": "Queue empty state. T18 keeps it as the whole empty screen: the UX spec's Queue Empty row is 'nothing at all', so an empty queue shows no controls and no headers."
+  },
+
+  "queueItemCreate": "Alta de {entity}",
+  "@queueItemCreate": {
+    "description": "T18, FR-MD07: what a queued create will do, in domain language. The queue is the operator's list of promises, not a developer's log, so no operation key and no path is ever shown. The entity is the registry's own word for the record. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "queueItemDelete": "Borrado del registro {id} de {entity}",
+  "@queueItemDelete": {
+    "description": "T18, FR-MD07: what a queued delete will do, in domain language, naming the record it will remove so the operator knows which promise is pending. It says what the item will do, never how the backend is called. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "queueItemUnknown": "Operación pendiente",
+  "@queueItemUnknown": {
+    "description": "T18: the queued item whose operation no longer belongs to any entity of the current registry, so no domain word can be named for it. The honest generic form instead of a record name the registry cannot supply. Impersonal register: no tuteo and no voseo."
+  },
+
+  "queueStatusPending": "En cola",
+  "@queueStatusPending": {
+    "description": "T18: the item is persisted and has not been attempted yet. One of the three queue states, which are distinguishable by word and never by colour alone (FR-MG04)."
+  },
+
+  "queueStatusInFlight": "Enviando…",
+  "@queueStatusInFlight": {
+    "description": "T18: a drain has taken the item and is sending it right now. One of the three queue states, distinguishable by word rather than by colour."
+  },
+
+  "queueStatusFailed": "Falló",
+  "@queueStatusFailed": {
+    "description": "T18, FR-MD08: the last attempt failed and the item is still queued, retained for retry or cancellation. One of the three queue states, distinguishable by word rather than by colour."
+  },
+
+  "queueAttempts": "Intentos: {count}",
+  "@queueAttempts": {
+    "description": "T18: how many sends have failed so far, shown on the item only when it is greater than zero. It counts attempts, not taps: a retry that has not been attempted yet does not add one. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "queueFailedNoAnswer": "El backend no respondió.",
+  "@queueFailedNoAnswer": {
+    "description": "T18, FR-MD08: the reason for a failed queue item when the backend gave no answer at all, derived from the stable code the drain persisted. The reason is said in domain language and never as a stored string. Impersonal register: no tuteo and no voseo."
+  },
+
+  "queueFailedStatus": "El backend respondió con el código {status}.",
+  "@queueFailedStatus": {
+    "description": "T18, FR-MD08: the reason for a failed queue item when the backend refused it with a status. The code is a protocol fact the operator needs in order to retry or discard; T22 replaces it with a sentence derived from the generated errors map. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "queueFailedRejected": "El backend rechazó la operación.",
+  "@queueFailedRejected": {
+    "description": "T18, FR-MD08: the reason for a failed queue item whose stored code is the bare `rejected` a row the drain (T16) wrote before T18 stored the status beside the code, so the status of the refusal is not in the row. It is deliberately vaguer than queueFailedStatus, which cannot be said here without inventing a code the row does not carry. Impersonal register: no tuteo and no voseo."
+  },
+
+  "queueFailedOrphan": "Esa operación ya no existe en el backend.",
+  "@queueFailedOrphan": {
+    "description": "T18, FR-MD08: the reason for a failed queue item whose operation the current registry no longer publishes, so it cannot be replayed. Impersonal register: no tuteo and no voseo."
+  },
+
+  "queueDiscard": "Descartar",
+  "@queueDiscard": {
+    "description": "T18, FR-MD07: the destructive action a swipe reveals on a queue item, and the confirm control in the confirmation that follows it. It never appears without that question behind it."
+  },
+
+  "queueDiscardAction": "Descartar del todo",
+  "@queueDiscardAction": {
+    "description": "T18, FR-MD07: the explicit discard control inside the item's card. A swipe alone is not discoverable and is impossible for some operators, so the same decision always has a visible control too. It is deliberately stronger wording than the swipe's revealed action, because it is what a tap does immediately."
+  },
+
+  "queueKeepAction": "Conservar",
+  "@queueKeepAction": {
+    "description": "T18: the non-destructive choice in the confirmation before a queue item is discarded. It keeps the promise the app made."
+  },
+
+  "queueCancelConfirmTitle": "¿Descartar la operación pendiente?",
+  "@queueCancelConfirmTitle": {
+    "description": "T18, FR-MD07: the question asked before a queued item is discarded, because a destructive action on a list is confirmed exactly as a destructive voice command is. Impersonal register: no second person, no tuteo and no voseo."
+  },
+
+  "queueCancelConfirmBody": "Se quitará de la cola y nunca se enviará.",
+  "@queueCancelConfirmBody": {
+    "description": "T18, FR-MD07: what discarding actually means — the promise is withdrawn and the command will never be sent. This is the one thing a discard must never blur. Impersonal register: no tuteo and no voseo."
+  },
+
+  "queueRetryAction": "Reintentar",
+  "@queueRetryAction": {
+    "description": "T18, FR-MD08: the retry control, offered on a failed queue item only and never on a pending one."
   },
 
   "settingsTitle": "Ajustes",

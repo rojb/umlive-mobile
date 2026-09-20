@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 
 import '../conversation/cache_executor.dart';
 import '../conversation/operation_executor.dart';
@@ -35,14 +37,29 @@ import '../openapi/registry_parser.dart';
 ///   authority** — no answer, a 404, or a 2xx body that is not a description.
 ///   The reachability state names why the live attempt failed; the registry the
 ///   app works with is the one the backend described last time (`FR-MA04`).
-class ConnectionController extends ChangeNotifier {
+class ConnectionController extends ChangeNotifier with WidgetsBindingObserver {
+  /// The cadence of the automatic re-probe (`FR-MD04`).
+  ///
+  /// 20 s is slow on purpose: it is the wait between two questions to the
+  /// backend while it is not known to answer, not a heartbeat. It is well above
+  /// the probe's own 10 s budget (`FR-MA02`), so two probes never overlap by
+  /// accident, and fast enough that a backend that comes back is noticed
+  /// without the operator doing anything.
+  static const Duration _reprobeInterval = Duration(seconds: 20);
+
   ConnectionController(
     this._profiles,
     this._outbox,
     this._registry,
     this._readCache, {
     BackendProbe? probe,
-  }) : _probe = probe ?? BackendProbe();
+  }) : _probe = probe ?? BackendProbe() {
+    // The re-probe cadence follows the app's lifecycle as well as the
+    // reachability state, so the controller has to hear about both. Registered
+    // here, removed in [dispose]: one observer per controller, and the app
+    // builds exactly one controller.
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   final ProfileRepository _profiles;
 
@@ -86,6 +103,13 @@ class ConnectionController extends ChangeNotifier {
   /// generation is discarded, so a cancelled probe can never overwrite the
   /// state of the one that replaced it.
   int _generation = 0;
+
+  /// The one automatic re-probe timer, or null when no cadence is running.
+  ///
+  /// At most one is ever live: [_syncReprobe] is the only thing that schedules
+  /// it, it leaves an existing timer alone, and [_cancelReprobe] is the only
+  /// thing that drops it.
+  Timer? _reprobeTimer;
 
   /// True when an address is stored and usable as a target.
   bool get hasStoredProfile => _address != null;
@@ -285,7 +309,83 @@ class ConnectionController extends ChangeNotifier {
     _logReported(answered: answered, state: state);
     if (state == _reachability) return;
     _reachability = state;
+    // An operation that got no answer puts the app back on the slow cadence, and
+    // an operation the backend answered stops it: this is the one place that
+    // knows an operation moved the state.
+    _syncReprobe();
     notifyListeners();
+  }
+
+  /// Keeps the automatic re-probe in step with the reachability state
+  /// (`FR-MD04`).
+  ///
+  /// `FR-MD04` says the queue drains **when reachability returns, with no user
+  /// action**. Reachability is decided by the probe and by real operation
+  /// traffic (`FR-MD01`), and before this method the only things that asked
+  /// again were the startup probe in `main.dart` and the Connect screen's
+  /// retry — so with the app already running against an unreachable backend,
+  /// restoring connectivity changed nothing. Measured on `TFY-LX3`: after the
+  /// radios came back and the USB mapping was restored, no
+  /// `action=drain step=start` line appeared for 2 minutes 45 seconds, the
+  /// badge still read 3, and the three queued creates were never sent.
+  ///
+  /// The radio is **not** the signal — `FR-MD01` defines online as *the backend
+  /// answered* — so no connectivity callback is registered here: a radio coming
+  /// back says nothing about the backend, and a callback on it would be the
+  /// wrong trigger even if it fired. What the app does instead is keep asking
+  /// the backend itself, on a slow cadence, until the backend answers; the
+  /// probe is then the only thing that moves the state, the listeners are
+  /// notified as they already were, and
+  /// `ConversationController.requestDrain` runs the drain by itself. Nothing
+  /// here claims the backend is up — it only decides when to ask again.
+  ///
+  /// One timer, never two: a running cadence is left alone, a `connected`
+  /// state stops it (there is nothing left to ask), no stored profile stops it
+  /// (there is nothing to ask about), and [didChangeAppLifecycleState] drops it
+  /// while the app is not in the foreground.
+  void _syncReprobe() {
+    if (_reachability == ReachabilityState.connected || !hasStoredProfile) {
+      _cancelReprobe();
+      return;
+    }
+    _reprobeTimer ??= Timer.periodic(_reprobeInterval, (_) {
+      // Fire-and-forget: the timer must not queue probes behind each other, and
+      // `probeStored` already owns every failure mode as a state.
+      unawaited(probeStored());
+    });
+  }
+
+  /// Stops the re-probe cadence. Idempotent, so callers never have to check
+  /// whether one is running first.
+  void _cancelReprobe() {
+    _reprobeTimer?.cancel();
+    _reprobeTimer = null;
+  }
+
+  /// The lifecycle half of the cadence: ask once on the way back in, and stop
+  /// polling on the way out.
+  ///
+  /// `resumed` is the moment the operator expects the app to try again after
+  /// turning connectivity back on, so the wait is skipped and one probe runs
+  /// immediately; the cadence then continues from whatever that probe found.
+  /// Every other state means the app is not in the foreground, where polling
+  /// would be wasted work: `T19` is where background survival is decided on
+  /// purpose, with a foreground service, and a probe every 20 s behind the
+  /// operator's back is not this task's decision to make.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (_reachability != ReachabilityState.connected && hasStoredProfile) {
+          unawaited(probeStored());
+        }
+        _syncReprobe();
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _cancelReprobe();
+    }
   }
 
   /// One `[umlive][reachability]` line per report, in the same shape whether
@@ -378,6 +478,10 @@ class ConnectionController extends ChangeNotifier {
     });
     await _loadCachedRegistry(stored.profile.id);
     _useStoredRegistry();
+    // A profile is stored and no probe has answered yet, which is exactly the
+    // state the cadence exists for: the app starts asking on its own even
+    // before `main.dart`'s startup probe has come back (`FR-MD04`).
+    _syncReprobe();
     notifyListeners();
   }
 
@@ -519,6 +623,10 @@ class ConnectionController extends ChangeNotifier {
       _useStoredRegistry();
     }
 
+    // After every branch above, so the cadence follows the state that **settled**
+    // and not the one the probe's status suggested: a 2xx whose body was not a
+    // description leaves the app not connected, and it must keep asking.
+    _syncReprobe();
     notifyListeners();
 
     if (result.state == ReachabilityState.connected && profileId != null) {
@@ -757,6 +865,10 @@ class ConnectionController extends ChangeNotifier {
 
   @override
   void dispose() {
+    // The timer and the observer go first: neither may survive the controller
+    // or fire against a disposed notifier.
+    _cancelReprobe();
+    WidgetsBinding.instance.removeObserver(this);
     _probe.cancel();
     super.dispose();
   }

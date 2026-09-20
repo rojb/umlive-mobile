@@ -42,7 +42,13 @@ import 'turn.dart';
 /// It also triggers the automatic drain (`T16`). When reachability returns to
 /// [ReachabilityState.connected] it starts one [OutboxDrainer] run and reports
 /// every outcome as its own turn (`FR-MD04`, `FR-MD08`); sending is the
-/// drainer's, so this class never touches the queue itself.
+/// drainer's, so this class never sends anything itself.
+///
+/// It owns the queue's state as well (`T18`). The queue screen reads
+/// [queueItems] and [queuedCount] from here, and every change goes through
+/// [refreshQueue], [cancelQueued] and [retryQueued], so the screen never opens
+/// the database — and the badge and the list behind it can never disagree,
+/// because both are projections of the same read.
 class ConversationController extends ChangeNotifier {
   ConversationController(
     ConnectionController connection, {
@@ -79,14 +85,19 @@ class ConversationController extends ChangeNotifier {
     _speech = speech;
     _connection.addListener(_onConnectionChanged);
     _syncGreeting();
+    // The badge and the list start from what the queue actually holds, so a
+    // cold start that finds rows left by a force-kill shows them before any
+    // drain runs (`T18`, `FR-MD06`). Fire-and-forget: opening the database must
+    // not hold the frame that builds the first screen.
+    unawaited(refreshQueue());
   }
 
   static const String _greetingId = 'greeting';
 
   final ConnectionController _connection;
 
-  /// The durable queue (`T16`). The drain sends from it, and `T18`'s queue
-  /// screen will read the same repository.
+  /// The durable queue (`T16`, `T18`). The drain sends from it, and the queue
+  /// screen reads it through [queueItems] — never from the database itself.
   late final OutboxRepository _outbox;
   final OperationResolver _resolver;
   final OperationExecutor _executor;
@@ -111,6 +122,100 @@ class ConversationController extends ChangeNotifier {
   /// The write the conversation is assembling or confirming, or null when
   /// there is none.
   PendingWrite? get pendingWrite => _pending;
+
+  /// The queue as the last read saw it, in issue order (`T18`).
+  ///
+  /// A projection of the `outbox` table and never a second source of truth:
+  /// every change to the queue is followed by [refreshQueue], and the
+  /// repository stays the only thing that persists.
+  List<OutboxItem> _queue = const <OutboxItem>[];
+
+  /// The outstanding queue in issue order, as the last read saw it (`T18`).
+  ///
+  /// The queue screen builds from this inside a `ListenableBuilder`; it is a
+  /// plain getter over the projection [refreshQueue] keeps, because a view
+  /// that awaited the database could not be built.
+  List<OutboxItem> get queueItems => List<OutboxItem>.unmodifiable(_queue);
+
+  /// How many items the app-bar badge counts (`T18`).
+  ///
+  /// The length of exactly [queueItems], so the number in the app bar and the
+  /// list behind it can never disagree — including while a drain is sending
+  /// the head, because that item is still a promise the app has not kept.
+  int get queuedCount => _queue.length;
+
+  /// Re-reads the queue for the live profile and notifies (`T18`).
+  ///
+  /// Called at bootstrap, after every drain, after every cancel or retry, and
+  /// when the queue screen appears. It re-projects the repository, plus the one
+  /// repair described below: a state left behind by a process that is gone is
+  /// not a fact about the item, so it is cleared here rather than shown.
+  Future<void> refreshQueue() async {
+    final profileId = _connection.profileId;
+    if (profileId == null || profileId.isEmpty) {
+      _queue = const <OutboxItem>[];
+      notifyListeners();
+      return;
+    }
+    // A row a process that died mid-send left `inFlight` is not in flight in
+    // this one, and nothing else would ever clear it: the drain's own view
+    // excludes it, so the screen would show it as *sending* for good while it
+    // is never sent and cannot be discarded — a promise neither kept nor taken
+    // back. It is recovered **before** the list is read, so the projection
+    // below is the recovered queue and not the stale one.
+    //
+    // This is the right place because `refreshQueue` is the boundary the queue
+    // is re-read through: it runs at bootstrap, when no send of this process
+    // can be in flight yet, and again after every drain, cancel and retry — so
+    // the recovery always runs on the queue's own terms, right where the app
+    // decides what the queue holds, and never from a screen that happened to be
+    // opened.
+    await _outbox.recoverInFlight(profileId);
+    final items = await _outbox.outstanding(profileId);
+    _queue = items;
+    notifyListeners();
+  }
+
+  /// Cancels one queued item: the operator withdrawing a promise the app made
+  /// (`FR-MD07`), never a decision this class takes on its own.
+  ///
+  /// The row is removed first, so the queue is the truth immediately and the
+  /// list and the badge follow it. A cancel is the operator's decision about a
+  /// promise, so it is logged. When the item removed was the head of the
+  /// queue, the command behind it is no longer blocked, so a drain is asked for
+  /// (`FR-MD04`): the next item may now be sendable.
+  Future<void> cancelQueued(int id) async {
+    final wasHead = _queue.isNotEmpty && _queue.first.id == id;
+    await _outbox.remove(id);
+    logEvent('conversation', <String, Object?>{
+      'action': 'cancel_queued',
+      'id': id,
+      'head': wasHead,
+    });
+    await refreshQueue();
+    if (wasHead) unawaited(requestDrain());
+  }
+
+  /// Returns a failed item to the queue, so the next drain retries it in its
+  /// original place (`FR-MD08`, `FR-MD04`).
+  ///
+  /// **Only a failed item can be retried.** `FR-MD08` retains a failed replay
+  /// *for retry or cancellation*, and the UX spec puts retry on the failed
+  /// item only: a pending item has not failed yet, so there is nothing to
+  /// retry and offering the control would suggest the app had already tried. An
+  /// in-flight item is being sent right now, so it is not retried either.
+  Future<void> retryQueued(int id) async {
+    final index = _queue.indexWhere((item) => item.id == id);
+    if (index == -1) return;
+    if (_queue[index].status != OutboxStatus.failed) return;
+    await _outbox.markPending(id);
+    logEvent('conversation', <String, Object?>{
+      'action': 'retry_queued',
+      'id': id,
+    });
+    await refreshQueue();
+    unawaited(requestDrain());
+  }
 
   /// The app pins its locale to Spanish in `main.dart` rather than exposing it
   /// as a setting, so constructing the concrete localizations class directly
@@ -294,17 +399,32 @@ class ConversationController extends ChangeNotifier {
 
   void _onConnectionChanged() {
     _syncGreeting();
-    _maybeStartDrain();
+    unawaited(requestDrain());
   }
 
-  /// Starts one automatic drain when the backend is reachable (`FR-MD04`).
+  /// Asks for a drain when the backend is reachable (`FR-MD04`).
   ///
+  /// The one entry point to ask — the reachability listener, a cancel and a
+  /// retry all come through it, so the queue screen never starts a run itself.
   /// Fire-and-forget: catching up on the queue must never hold the frame that
-  /// reported the state. The guard is read synchronously here, before the run's
-  /// first `await`, so a drain that answers an operation cannot retrigger
-  /// itself through the reachability notification its own result produces.
-  void _maybeStartDrain() {
-    if (_connection.reachability != ReachabilityState.connected) return;
+  /// asked. The guard is read synchronously here, before the run's first
+  /// `await`, so a drain that answers an operation cannot retrigger itself
+  /// through the reachability notification its own result produces.
+  Future<void> requestDrain() async {
+    if (_connection.reachability != ReachabilityState.connected) {
+      // `FR-MD04` drains on reachability returning, and this is the branch that
+      // says it has not returned yet. The run is never started, so the
+      // drainer's own `step=skip` lines never appear and a queue that is simply
+      // waiting looks exactly like a queue whose drain is broken — which is how
+      // the `TFY-LX3` defect read. One line makes the absence provable from
+      // `adb logcat`. Behaviour is unchanged: nothing is sent.
+      logEvent('outbox', <String, Object?>{
+        'action': 'drain',
+        'step': 'skip',
+        'reason': 'offline',
+      });
+      return;
+    }
     if (_drainer.isDraining) return;
     unawaited(
       _drain().catchError((Object error) {
@@ -323,6 +443,10 @@ class ConversationController extends ChangeNotifier {
   Future<void> _drain() async {
     final report = await _drainer.drain();
     _reportDrain(report);
+    // The run is over, so the list and the badge re-read what it left: a sent
+    // item is gone, a failed one is retained with its reason, and the two
+    // counts follow without anything else asking (`T18`).
+    await refreshQueue();
   }
 
   /// Reports every drained item as its own turn (`FR-MD08`).

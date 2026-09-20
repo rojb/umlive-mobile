@@ -76,7 +76,12 @@ final class DrainFailed extends DrainOutcome {
   /// A **stable code**, never a sentence: `no_answer` when no status came back
   /// at all, `rejected` when the backend answered outside 2xx, and
   /// `operation_not_in_registry` when the current registry no longer publishes
-  /// the item's operation. It is what the queue keeps as `last_error`.
+  /// the item's operation. It is what the drain reports and logs.
+  ///
+  /// What the queue **persists** is the stored form of it, which carries the
+  /// status beside a refusal (`rejected:404`): the row is the only thing that
+  /// survives, and it has to be enough for the queue screen to name the reason
+  /// in domain language months later.
   final String reason;
 }
 
@@ -301,7 +306,7 @@ class OutboxDrainer {
     final reason = result.statusCode == null || result.queued
         ? _reasonNoAnswer
         : _reasonRejected;
-    await outbox.markFailed(item.id, reason);
+    await outbox.markFailed(item.id, _storedReason(reason, result.statusCode));
     logEvent('outbox', <String, Object?>{
       'action': 'drain',
       'step': 'failed',
@@ -316,6 +321,21 @@ class OutboxDrainer {
       statusCode: result.statusCode,
       reason: reason,
     );
+  }
+
+  /// The reason the drain **persists** into `outbox.last_error`.
+  ///
+  /// A refusal keeps the status beside the code — `rejected:404` — because the
+  /// queue screen has to name the reason in domain language months later, and
+  /// the stored row is the only thing that survives: the one column has room
+  /// for both facts, so both are written. `no_answer` and
+  /// `operation_not_in_registry` carry no status and are stored as they are.
+  ///
+  /// [DrainFailed.reason] itself stays the bare code, because it is a log
+  /// field first and only the persisted form changed (`T18`).
+  String _storedReason(String reason, int? statusCode) {
+    if (reason != _reasonRejected || statusCode == null) return reason;
+    return '$_reasonRejected:$statusCode';
   }
 
   /// Closes a run: the outstanding count after it and one `stop` line.
