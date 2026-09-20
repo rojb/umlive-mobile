@@ -15,10 +15,19 @@ import 'operation_executor.dart';
 /// A [UserTurn] is always [resolved] the moment it is captured — there is
 /// nothing pending about having said or typed something. An [AssistantTurn]
 /// starts [pending] while resolution and, later, execution are in flight, and
-/// settles into [resolved] or [failed].
+/// settles into [resolved], [queued] or [failed].
 enum TurnStatus {
   /// Still being worked on: resolution or an HTTP call is in flight.
   pending,
+
+  /// Settled with the command **persisted and not sent** (`FR-MD02`): it did
+  /// not happen and it will.
+  ///
+  /// A queued turn is never a success and never a failure — nothing was
+  /// answered by the backend, and nothing was lost either. The UX spec's rule
+  /// is that a queued turn is never rendered like a done one, because a queued
+  /// action that looks like a result is the app lying about durability.
+  queued,
 
   /// Settled with an answer the assistant is confident in.
   resolved,
@@ -109,8 +118,8 @@ final class UserTurn extends ConversationTurn {
   final String text;
 }
 
-/// A turn produced by the assistant: the greeting, a resolved answer, or an
-/// honest "could not resolve" reply.
+/// A turn produced by the assistant: the greeting, a resolved answer, a queued
+/// write, or an honest "could not resolve" reply.
 ///
 /// The greeting is no longer a special case outside the list — it is the
 /// first [AssistantTurn], always [TurnStatus.resolved], synthesized by

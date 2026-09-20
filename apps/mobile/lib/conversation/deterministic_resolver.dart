@@ -900,6 +900,28 @@ class DeterministicOperationResolver implements OperationResolver {
     );
     final evidence = OperationEvidence.fromResult(result);
 
+    // A queued delete is **not** a success and must never be reported as one:
+    // the backend never received the `DELETE`, so the record is not known to be
+    // gone. This is checked before `succeeded` because a queued result is
+    // deliberately not a success, and reporting it as done is the one thing the
+    // queue exists to prevent. The target left the conversation and now belongs
+    // to the queue.
+    if (result.queued) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultWrite,
+        replyText: l10n.conversationDeleteQueued(pending.recordId, entityName),
+        status: TurnStatus.queued,
+        intent: _intentDelete,
+        entity: entityName,
+        operation: operation.key,
+        phase: _phaseConfirming,
+        reason: 'queued',
+        evidence: evidence,
+        pending: null,
+      );
+    }
+
     if (result.succeeded) {
       return _finish(
         utteranceLength: utteranceLength,
@@ -915,11 +937,11 @@ class DeterministicOperationResolver implements OperationResolver {
       );
     }
 
-    // The call ran and the backend did not answer correctly, so the record is
-    // not known to be gone. `T22` replaces this sentence with one derived from
-    // the status and the `errors` keys; the evidence travels with the turn
-    // either way, and the target is dropped because `T14`'s outbox is what will
-    // keep an unacknowledged write.
+    // The call ran and the backend answered with an error, so the record is not
+    // known to be gone and the queue is not a fallback: the outbox keeps a write
+    // the backend never received, and this one was received. `T22` replaces this
+    // sentence with one derived from the status and the `errors` keys; the
+    // evidence travels with the turn either way.
     return _finish(
       utteranceLength: utteranceLength,
       result: _resultWrite,
@@ -938,9 +960,10 @@ class DeterministicOperationResolver implements OperationResolver {
   /// Converts the complete draft and issues the create.
   ///
   /// Reached only from an affirmative (`FR-MC03`). A 2xx is the only outcome
-  /// that says the record was created; anything else is the failure sentence
-  /// with its evidence, and the draft is dropped because nothing was persisted
-  /// (`T14`'s outbox is what will keep it).
+  /// that says the record was created; a write the backend never received is
+  /// queued by the executor decorator and reported as queued (`T14`); a refusal
+  /// from a backend that did answer drops the draft with its evidence, because
+  /// retrying a request the backend already saw would duplicate work.
   Future<ResolverOutcome> _submitWrite({
     required int utteranceLength,
     required PendingCreate pending,
@@ -1016,6 +1039,27 @@ class DeterministicOperationResolver implements OperationResolver {
     final result = await executor.execute(operation: operation, body: body);
     final evidence = OperationEvidence.fromResult(result);
 
+    // A queued create is **not** a success and must never be reported as one:
+    // the backend never received the `POST`, so the record does not exist yet.
+    // This is checked before `succeeded` because a queued result is deliberately
+    // not a success, and reporting it as done is the one thing the queue exists
+    // to prevent. The write left the conversation and now belongs to the queue.
+    if (result.queued) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultWrite,
+        replyText: l10n.conversationCreateQueued(entityName),
+        status: TurnStatus.queued,
+        intent: _intentCreate,
+        entity: entityName,
+        operation: operation.key,
+        phase: phase,
+        reason: 'queued',
+        evidence: evidence,
+        pending: null,
+      );
+    }
+
     if (result.succeeded) {
       return _finish(
         utteranceLength: utteranceLength,
@@ -1031,8 +1075,11 @@ class DeterministicOperationResolver implements OperationResolver {
       );
     }
 
-    // Nothing was persisted, so the draft is dropped: `T14`'s outbox is what
-    // will keep a write the backend did not acknowledge.
+    // The backend answered and refused — a 4xx or a 5xx. Nothing was persisted
+    // and the queue is deliberately not a fallback here: the outbox keeps a
+    // write the backend **never received**, and this request was received, so
+    // replaying it would duplicate work the backend already saw. The draft is
+    // dropped and the failure is reported with its evidence.
     return _finish(
       utteranceLength: utteranceLength,
       result: _resultWrite,

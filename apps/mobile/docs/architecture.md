@@ -664,3 +664,52 @@ target is never inferred.
   cancel that left the record in place, *"borrá los clientes"* refused with no
   identifier at all, and *"modificá el cliente 7"* refused **without a `GET`** —
   the exact failure this guard exists to prevent.
+
+## 18. Durability: the outbox, and a queued turn that never looks done (T14)
+
+- **The queue is written before the operator is told anything** (`FR-MD02`). The
+  measured order on `TFY-LX3` was `[umlive][outbox] action=enqueue …` at
+  `12:11:43.414` and the queued turn at `12:11:43.417`: the row is in SQLite
+  before the sentence exists. A write the backend never received used to be
+  dropped with an apology; it is now a promise, and the promise is the row.
+- **One decorator, and the resolver never learns about durability.**
+  `OperationExecutor` became an interface, the HTTP client is
+  `HttpOperationExecutor`, and `OutboxOperationExecutor`
+  (`lib/conversation/outbox_executor.dart`) wraps it: the resolver still receives
+  a plain `OperationExecutor` and branches only on `OperationResult.queued`.
+  `ConnectionController.buildExecutor()` is where the stack is composed, which is
+  also where `T17`'s read cache will compose.
+- **Only "the backend did not answer" is queued.** A transport failure
+  (`networkUnreachable`, `timeout`) means the request never arrived, so it is
+  persisted. A `4xx`/`5xx` means the backend **did** answer and the request was
+  received — re-sending it would duplicate work it already saw — so a refusal is
+  reported and never queued. Safe methods (`GET`, `HEAD`, `OPTIONS`, HTTP
+  semantics and not a domain verb) are never queued at all: a read the backend
+  did not answer is not work waiting to happen.
+- **`OperationResult.queued` is checked before `succeeded`, and `succeeded`
+  stays false for it.** That ordering is the one thing standing between a queued
+  write and a lie: the resolver's `_submitWrite` and `_submitDelete` branch on
+  `queued` first, and the doc comment on `succeeded` says why.
+- **A queued turn is a fourth settled status.** `TurnStatus.queued` sits between
+  `pending` and `resolved`, the turn carries its own copy (*"Quedó en cola: el
+  registro de cliente se enviará cuando el backend vuelva a responder."*), and the
+  bubble renders an icon **and** the word *"En cola"* over an outline, because
+  §4's rule is that a queued command never looks like a done one and the UX spec
+  forbids carrying that state in colour alone. `FR-MD03`'s source sentence is
+  *"Guardaremos tu consulta y la enviaremos cuando vuelva la conexión."*; this says
+  the same thing in the app's impersonal register.
+- **The sequence is `MAX(seq) + 1` per profile, inside one transaction** — a
+  counter that only grows, never a timestamp. That single number is what `T16`
+  will drain by, and it is why a later command can never overtake an earlier one.
+- **A create carries its idempotency key from the moment it is queued**
+  (`FR-MD09`), 32 hex characters from `Random.secure()`, because a replay needs a
+  key generated before the first attempt. A delete gets none: replaying a delete
+  is safe by nature. `T16` is what sends it.
+- **Nothing about the payload is logged.** The enqueue line carries `id`, `seq`,
+  `operation`, `kind`, `attempts` and `bodyBytes` — never a body and never a
+  captured value. The queue holds the operator's data; the log gets its size.
+- **Crash durability is measured, not assumed** (`FR-MD06`): with two rows queued,
+  `adb shell am force-stop` followed by a relaunch logged
+  `[umlive][outbox] kind=pending count=2`, and after the radios and the USB mapping
+  came back the count was still 2 with the backend's collection still empty —
+  `T14` persists, and it never drains on its own.

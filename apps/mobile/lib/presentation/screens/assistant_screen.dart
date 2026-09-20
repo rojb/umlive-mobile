@@ -253,9 +253,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
 ///
 /// The sealed hierarchy in `turn.dart` forces this `switch` to cover both
 /// cases; adding a third turn kind later would fail to compile here until it
-/// is handled. Turn status (`TurnStatus.pending` / `resolved` / `failed`) is
-/// carried on [AssistantTurn] already but is not yet distinguished visually —
-/// that lands with the accessibility pass (`T24`, `FR-MG04`), not here.
+/// is handled. Turn status is carried on [AssistantTurn] (`T14`):
+/// [TurnStatus.queued] gets its own mark below, and the remaining states get
+/// their visual treatment with the accessibility pass (`T24`, `FR-MG04`).
 class _TurnBubble extends StatelessWidget {
   const _TurnBubble({required this.turn});
 
@@ -268,9 +268,9 @@ class _TurnBubble extends StatelessWidget {
         alignment: Alignment.topRight,
         child: _UserTurn(text: text),
       ),
-      AssistantTurn(:final text) => Align(
+      AssistantTurn(:final text, :final status) => Align(
         alignment: Alignment.topLeft,
-        child: _AssistantTurn(text: text),
+        child: _AssistantTurn(text: text, status: status),
       ),
     };
   }
@@ -278,23 +278,57 @@ class _TurnBubble extends StatelessWidget {
 
 /// One assistant turn. The user's bubbles invert to
 /// [AppColors.userBubble]; assistant turns stay on the low-contrast surface.
+///
+/// A [TurnStatus.queued] turn marks itself with an icon **and** the word
+/// `l10n.turnQueuedLabel` above its text, because the UX spec forbids carrying
+/// this state in colour alone (`FR-MG04`), and gives the bubble a border so the
+/// mark survives even for someone who does not read the icon. A queued turn
+/// that looks like a result is the app lying about durability, which is the one
+/// thing the queue exists to prevent (architecture §4).
 class _AssistantTurn extends StatelessWidget {
-  const _AssistantTurn({required this.text});
+  const _AssistantTurn({required this.text, required this.status});
 
   final String text;
+  final TurnStatus status;
 
   @override
   Widget build(BuildContext context) {
+    final queued = status == TurnStatus.queued;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.lg,
         vertical: AppSpacing.md,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: AppRadii.cardSmallAll,
+        border: queued ? Border.all(color: AppColors.border) : null,
       ),
-      child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (queued) ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.schedule_outlined,
+                  size: 16,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  AppLocalizations.of(context).turnQueuedLabel,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        ],
+      ),
     );
   }
 }

@@ -73,6 +73,7 @@ class OperationResult {
     this.decodedBody,
     this.fieldErrors,
     this.missingPathParameter,
+    this.queued = false,
   });
 
   /// [ApiOperation.key] of the operation that was called.
@@ -111,7 +112,17 @@ class OperationResult {
   /// [failure] is [OperationFailureKind.missingPathParameter].
   final String? missingPathParameter;
 
-  /// True for a plain 2xx outcome.
+  /// True when the write was **persisted to the outbox** instead of being
+  /// sent (`FR-MD02`): the backend never received it.
+  ///
+  /// A queued result is not a success, so [succeeded] stays false, and a
+  /// caller must branch on this **before** it branches on [succeeded] —
+  /// otherwise a queued write would be reported as done, which is the one
+  /// thing the queue exists to prevent.
+  final bool queued;
+
+  /// True for a plain 2xx outcome. A queued result is never a success: this is
+  /// false for it however the inner call went.
   bool get succeeded =>
       failure == OperationFailureKind.none &&
       statusCode != null &&
@@ -130,11 +141,34 @@ class _PathSubstitution {
 
 final RegExp _placeholderPattern = RegExp(r'\{([^{}]+)\}');
 
-/// Calls a discovered operation over `dart:io`'s `HttpClient`, mirroring
-/// `BackendProbe`'s discipline (timeout, one redirect, a body cap) without
-/// reusing it — that class exists only for the description path.
-class OperationExecutor {
-  OperationExecutor(
+/// The seam through which a resolution reaches a discovered operation (`T11`).
+///
+/// This is the only place in the app that knows how to call an operation the
+/// registry discovered, and the only way a resolver reaches the backend: a
+/// resolver is handed one of these and can reach the network, storage and the
+/// address nowhere else. `T14` composes `OutboxOperationExecutor` over the
+/// HTTP implementation below, and `T17`'s read cache joins at this same seam,
+/// so a resolver keeps receiving a plain [OperationExecutor] and never learns
+/// what is wrapped around it.
+abstract class OperationExecutor {
+  const OperationExecutor();
+
+  /// Calls [operation] with [pathParameters] bound and [body] as the request
+  /// payload, and never throws: every ordinary HTTP outcome, including no
+  /// backend, no network and a non-2xx status, comes back as a result.
+  Future<OperationResult> execute({
+    required ApiOperation operation,
+    Map<String, String> pathParameters = const <String, String>{},
+    Object? body,
+  });
+}
+
+/// The shipped [OperationExecutor]: calls a discovered operation over
+/// `dart:io`'s `HttpClient`, mirroring `BackendProbe`'s discipline (timeout,
+/// one redirect, a body cap) without reusing it — that class exists only for
+/// the description path.
+class HttpOperationExecutor extends OperationExecutor {
+  HttpOperationExecutor(
     this._addressOf,
     this._tokenOf, {
     this.timeout = const Duration(seconds: 10),
@@ -154,9 +188,7 @@ class OperationExecutor {
   /// limit.
   static const int maxBodyBytes = 8 * 1024 * 1024;
 
-  /// Calls [operation] with [pathParameters] bound and [body] as the request
-  /// payload, and never throws: every ordinary HTTP outcome, including no
-  /// backend, no network and a non-2xx status, comes back as a result.
+  @override
   Future<OperationResult> execute({
     required ApiOperation operation,
     Map<String, String> pathParameters = const <String, String>{},

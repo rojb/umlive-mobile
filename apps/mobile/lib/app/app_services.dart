@@ -4,6 +4,7 @@ import '../conversation/conversation_controller.dart';
 import '../conversation/deterministic_resolver.dart';
 import '../core/log.dart';
 import '../data/app_database.dart';
+import '../data/outbox_repository.dart';
 import '../data/profile_repository.dart';
 import '../data/registry_repository.dart';
 import '../presentation/connection_controller.dart';
@@ -19,6 +20,7 @@ class AppServices {
     required this.database,
     required this.profiles,
     required this.registry,
+    required this.outbox,
     required this.connection,
     required this.voice,
     required this.conversation,
@@ -27,6 +29,12 @@ class AppServices {
   final AppDatabase database;
   final ProfileRepository profiles;
   final RegistryRepository registry;
+
+  /// The durable queue for writes the backend never received (`T14`). Kept
+  /// here so a later queue screen (`T18`) has the same single owner every other
+  /// repository has.
+  final OutboxRepository outbox;
+
   final ConnectionController connection;
 
   /// The voice engine: one per app, built here like every other shared object.
@@ -53,7 +61,8 @@ class AppServices {
       secureStorage: const FlutterSecureStorage(),
     );
     final registry = RegistryRepository(database: database.database);
-    final connection = ConnectionController(profiles, registry);
+    final outbox = OutboxRepository(database: database.database);
+    final connection = ConnectionController(profiles, outbox, registry);
     await connection.loadStoredProfile();
     logEvent('app', {
       'action': 'bootstrap',
@@ -64,6 +73,7 @@ class AppServices {
       database: database,
       profiles: profiles,
       registry: registry,
+      outbox: outbox,
       connection: connection,
       voice: VoiceController(),
       conversation: ConversationController(

@@ -30,8 +30,12 @@ class ResolverOutcome {
   /// What the assistant turn shows and, eventually, speaks.
   final String replyText;
 
+  /// The three settled statuses are `resolved`, `failed` and `queued`:
   /// [TurnStatus.resolved] for an answer the assistant is confident in,
-  /// [TurnStatus.failed] for an honest "could not resolve". Never
+  /// [TurnStatus.failed] for an honest "could not resolve", and
+  /// [TurnStatus.queued] for a write that was **persisted and will be sent**
+  /// (`FR-MD02`) — the command did not happen and it will, so a queued outcome
+  /// is neither a success nor a failure and is never reported as one. Never
   /// [TurnStatus.pending] — by the time a resolver returns, it is done.
   final TurnStatus status;
 

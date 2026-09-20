@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 import '../conversation/operation_executor.dart';
+import '../conversation/outbox_executor.dart';
 import '../core/log.dart';
 import '../data/connection_profile.dart';
+import '../data/outbox_repository.dart';
 import '../data/profile_repository.dart';
 import '../data/registry_repository.dart';
 import '../net/backend_address.dart';
@@ -33,11 +35,18 @@ import '../openapi/registry_parser.dart';
 class ConnectionController extends ChangeNotifier {
   ConnectionController(
     this._profiles,
+    this._outbox,
     this._registry, {
     BackendProbe? probe,
   }) : _probe = probe ?? BackendProbe();
 
   final ProfileRepository _profiles;
+
+  /// The durable queue a write the backend never received is persisted to
+  /// (`T14`). Owned here so the executor stack this controller builds can wrap
+  /// the HTTP call with it, and so a later queue screen (`T18`) has one owner.
+  final OutboxRepository _outbox;
+
   final RegistryRepository _registry;
   final BackendProbe _probe;
 
@@ -117,17 +126,29 @@ class ConnectionController extends ChangeNotifier {
   /// transport layer below this class reads it.
   bool get hasToken => _token != null && _token!.isNotEmpty;
 
-  /// Builds an [OperationExecutor] bound to this controller's live address
-  /// and token (`T11`).
+  /// Builds the [OperationExecutor] a resolver reaches the backend through
+  /// (`T11`).
+  ///
+  /// The returned stack is `T14`'s: an [OutboxOperationExecutor] wrapped around
+  /// the [HttpOperationExecutor], so a write the backend never received is
+  /// persisted to the outbox before any acknowledgement reaches the operator
+  /// (`FR-MD02`). The decorator lives behind this one seam on purpose: the
+  /// resolver keeps receiving a plain [OperationExecutor] and never learns what
+  /// is wrapped around it, and every later decorator (`T17`'s read cache)
+  /// composes here rather than in a screen or in the resolver.
   ///
   /// Chosen over adding a public token getter: the token stays a private
-  /// field of this class, and the executor only ever sees the current address
-  /// and token through the two closures below, re-read on every call rather
-  /// than captured once — a reconnect to a different backend or a token
-  /// change is therefore visible to a caller holding an executor built before
-  /// it happened, with no second source of truth to fall out of sync.
-  OperationExecutor buildExecutor() =>
-      OperationExecutor(() => _address?.base, () => _token);
+  /// field of this class, and the executor only ever sees the current address,
+  /// token and profile id through the closures below, re-read on every call
+  /// rather than captured once — a reconnect to a different backend, a token
+  /// change or a profile change is therefore visible to a caller holding an
+  /// executor built before it happened, with no second source of truth to fall
+  /// out of sync.
+  OperationExecutor buildExecutor() => OutboxOperationExecutor(
+    HttpOperationExecutor(() => _address?.base, () => _token),
+    _outbox,
+    () => _profile?.id,
+  );
 
   /// True when the active address was accepted *and* is unencrypted, so the
   /// screen owes the user a visible warning (`PRD-MOBILE.md` §7).
@@ -182,6 +203,15 @@ class ConnectionController extends ChangeNotifier {
       'id': stored.profile.id,
       'url': stored.address.display,
       'transport': stored.address.transport.name,
+    });
+    // The queue survives a force-kill (`FR-MD06`), and this is the line that
+    // proves it: the count this profile starts the launch with, read before any
+    // queue screen exists. `T14`'s verification kills the app with writes still
+    // queued and reads this count on the next launch.
+    final queued = await _outbox.pendingCount(stored.profile.id);
+    logEvent('outbox', <String, Object?>{
+      'kind': 'pending',
+      'count': queued,
     });
     await _loadCachedRegistry(stored.profile.id);
     _useStoredRegistry();

@@ -605,6 +605,16 @@
     }
   },
 
+  "conversationCreateQueued": "Quedó en cola: el registro de {entity} se enviará cuando el backend vuelva a responder.",
+  "@conversationCreateQueued": {
+    "description": "T14: the answer to a create the backend never received, which was persisted to the outbox instead (FR-MD02). It names what was captured and what will happen — the record will be sent when the backend answers again — and it never says the record exists. This is the PRD's source sentence 'Guardaremos tu consulta y la enviaremos cuando vuelva la conexión.' stated in the app's impersonal register (no tuteo, no voseo). A queued write is not a success and must never sound like one.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
   "conversationWriteCancelled": "Se canceló la operación y no se envió nada.",
   "@conversationWriteCancelled": {
     "description": "T13: the answer to a cancel. It states that nothing was sent, so a cancel can never be mistaken for a success. Neutral register, no tuteo or voseo."
@@ -659,6 +669,24 @@
         "type": "String"
       }
     }
+  },
+
+  "conversationDeleteQueued": "Quedó en cola: se eliminará el registro {id} de {entity} cuando el backend vuelva a responder.",
+  "@conversationDeleteQueued": {
+    "description": "T14: the answer to a delete the backend never received, which was persisted to the outbox instead (FR-MD02). It names the target and what will happen — the record will be deleted when the backend answers again — and it never says the record is gone. Neutral register, no tuteo or voseo. A queued delete is not a success and must never sound like one.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "turnQueuedLabel": "En cola",
+  "@turnQueuedLabel": {
+    "description": "T14: the word that travels with the schedule icon on a queued turn. The UX spec forbids carrying the queued state in colour alone, so the mark is an icon and this word together (FR-MG04, architecture §4)."
   },
 
   "conversationDeleteFailed": "No se pudo eliminar el registro de {entity}: el backend no respondió correctamente.",
