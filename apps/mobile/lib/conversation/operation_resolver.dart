@@ -1,20 +1,21 @@
 /// The seam every resolution path implements.
 ///
-/// `ConversationController` calls exactly this interface to turn one
-/// utterance into a reply; it never resolves anything itself. `T11` wired the
-/// whole conversation loop — capture, turns, the executor — against it before
-/// any resolution logic existed, so a resolver could be dropped in without
-/// touching the controller again.
+/// `ConversationController` calls exactly this interface to turn one utterance
+/// into a reply; it never resolves anything itself. `T11` wired the whole
+/// conversation loop — capture, turns, the executor — against it before any
+/// resolution logic existed, so a resolver could be dropped in without touching
+/// the controller again.
 ///
 /// The shipped implementation is `DeterministicOperationResolver`
-/// (`deterministic_resolver.dart`): the deterministic read path of `T12`,
-/// which `T13` extends with the write path. There is no placeholder
+/// (`deterministic_resolver.dart`): the deterministic read path of `T12` and
+/// the create path of `T13`, in one stateless class. There is no placeholder
 /// implementation left, and no second resolver.
 library;
 
 import '../l10n/app_localizations.dart';
 import '../openapi/registry.dart';
 import 'operation_executor.dart';
+import 'pending_write.dart';
 import 'turn.dart';
 
 /// What resolving one utterance produced.
@@ -23,6 +24,7 @@ class ResolverOutcome {
     required this.replyText,
     required this.status,
     this.evidence,
+    this.pending,
   });
 
   /// What the assistant turn shows and, eventually, speaks.
@@ -40,6 +42,15 @@ class ResolverOutcome {
   /// failed still carries its evidence, because the call is what `T23` has to
   /// show and `T22` has to explain.
   final OperationEvidence? evidence;
+
+  /// The write the conversation is in the middle of after this turn, or null
+  /// when there is none.
+  ///
+  /// A non-null value means the *next* utterance is an answer to that
+  /// conversation — a field value, an affirmative or a negative (`FR-MC02`,
+  /// `FR-MC03`) — and never a new command. The controller owns the draft and
+  /// hands it back on the next call; the resolver stays stateless.
+  final PendingWrite? pending;
 }
 
 /// Resolves one utterance against the discovered [ApiRegistry], optionally
@@ -56,5 +67,6 @@ abstract class OperationResolver {
     required ApiRegistry registry,
     required OperationExecutor executor,
     required AppLocalizations l10n,
+    PendingWrite? pending,
   });
 }

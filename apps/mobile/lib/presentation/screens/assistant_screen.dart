@@ -9,6 +9,7 @@ import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/capture_section.dart';
 import '../widgets/reachability_indicator.dart';
+import '../widgets/response_focus.dart';
 import '../widgets/voice_status_banner.dart';
 
 /// Assistant — the home screen (`FR-MG01`).
@@ -36,6 +37,12 @@ import '../widgets/voice_status_banner.dart';
 /// sees their own words and no reply, which reads as the app having done
 /// nothing. `T13`'s read-back and confirmation, `T15`'s acknowledgement and
 /// `T18`'s queue reports all land in the same list.
+///
+/// T13 added the Response focus band below the conversation: while a write
+/// is being assembled it holds the one question, or the read-back of the
+/// complete record with its two controls, and the draft captured so far. The
+/// question is not also a turn — `ConversationController` drops the
+/// assistant turn while a draft is in flight — so the screen shows it once.
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
 
@@ -191,6 +198,27 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       );
                     },
                   ),
+                ),
+                // Response focus (UX spec Pass 2 and Pass 3): during slot
+                // filling and confirmation this area holds the question or the
+                // read-back "and nothing else" — the draft beneath it, and,
+                // while confirming, the two controls. It renders nothing outside
+                // a write in progress, and the conversation list above keeps the
+                // history, so the same question is never on screen twice.
+                ListenableBuilder(
+                  listenable: conversation,
+                  builder: (context, _) {
+                    final pending = conversation.pendingWrite;
+                    if (pending == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.md),
+                      child: ResponseFocus(
+                        pending: pending,
+                        onConfirm: conversation.confirmPendingWrite,
+                        onCancel: conversation.cancelPendingWrite,
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 // A description that parsed but declares no operation is workable

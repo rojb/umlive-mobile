@@ -537,6 +537,104 @@
     }
   },
 
+  "conversationWriteAskField": "Falta un campo obligatorio: {field}.",
+  "@conversationWriteAskField": {
+    "description": "T13: the question for exactly one missing required field, in schema order (FR-MC02). The field is named in its original UML spelling, because that is the schema's own vocabulary (FR-MC07). One field is asked for and nothing competes with the question. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "field": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteFieldInvalid": "El valor de {field} no tiene el formato esperado. Se puede volver a intentar.",
+  "@conversationWriteFieldInvalid": {
+    "description": "T13: the answer for the field could not be converted to the type the schema declares, so nothing was changed and the same field is asked for again (FR-MC02). One sentence instead of a prefix plus the question: it already names the field and says a retry is possible. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "field": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteReadBackCreate": "Se va a crear este registro de {entity}:",
+  "@conversationWriteReadBackCreate": {
+    "description": "T13: the read-back before a create, in domain language (FR-MC03). The draft below it is the complete record, and no partial body is ever submitted (FR-MC02). Deliberately no article before the entity name: Spanish gender is not derivable from the schema, so the sentence has to be right for cliente and for dirección alike. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteDraftHeading": "Datos capturados",
+  "@conversationWriteDraftHeading": {
+    "description": "T13: heading of the draft area under the question or the read-back, so the captured fields are one labelled group. Reserved for the Response focus band, which is a separate task; the string lives here now so all copy is in one place."
+  },
+
+  "conversationWriteDraftLine": "{field}: {value}",
+  "@conversationWriteDraftLine": {
+    "description": "T13: one captured field of the draft, in schema order, under conversationWriteDraftHeading. The value is the operator's own text, shown back unchanged. Reserved for the Response focus band, which is a separate task.",
+    "placeholders": {
+      "field": {
+        "type": "String"
+      },
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteConfirmAction": "Confirmar",
+  "@conversationWriteConfirmAction": {
+    "description": "T13: label of the committing control of the confirmation, and also the utterance that control submits through the same resolution path as speech, so the affirmative rule exists once (FR-MC03). Neutral register, no tuteo or voseo."
+  },
+
+  "conversationWriteCancelAction": "Cancelar",
+  "@conversationWriteCancelAction": {
+    "description": "T13: label of the cancel control of the confirmation, and the utterance it submits through the same resolution path as speech. A cancel must never look like a success. Neutral register, no tuteo or voseo."
+  },
+
+  "conversationWriteCreated": "Listo: se creó el registro de {entity}.",
+  "@conversationWriteCreated": {
+    "description": "T13: the confirmation of a create. A 2xx is the only thing that may say this, so it is never shown for a queued or failed write (FR-MD02). Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteCancelled": "Se canceló la operación y no se envió nada.",
+  "@conversationWriteCancelled": {
+    "description": "T13: the answer to a cancel. It states that nothing was sent, so a cancel can never be mistaken for a success. Neutral register, no tuteo or voseo."
+  },
+
+  "conversationWriteFailed": "No se pudo crear el registro de {entity}: el backend no respondió correctamente.",
+  "@conversationWriteFailed": {
+    "description": "T13: the failed create, for a call that ran and did not come back 2xx, or that never reached the backend. It states only that it failed, without inventing a cause: T22 replaces it with sentences derived from the status and the keys of the generated errors map. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationWriteAwaitingConfirmation": "La operación sigue esperando confirmación.",
+  "@conversationWriteAwaitingConfirmation": {
+    "description": "T13: the answer to a confirmation turn that was neither an affirmative nor a negative. The read-back still stands and the draft is kept, so the sentence says the operation is still waiting instead of pretending it settled. Neutral register, no tuteo or voseo."
+  },
+
+  "conversationWriteNoCreateOperation": "El backend no publica ninguna operación para crear {entity}.",
+  "@conversationWriteNoCreateOperation": {
+    "description": "T13: refusal when the entity publishes no create role, when the role points at an operation the registry does not carry, or when the create operation requires a body the entity's required writable fields cannot fill. No route is ever guessed to fill the gap (FR-MA03). Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
   "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",
   "@voiceStatusChecking": {
     "description": "Voice readiness banner while the app verifies that the bundled recognition model is present and usable (FR-MB03)."

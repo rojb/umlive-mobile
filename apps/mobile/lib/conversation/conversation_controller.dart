@@ -9,6 +9,7 @@ import '../presentation/discovered_scope.dart';
 import 'deterministic_resolver.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
+import 'pending_write.dart';
 import 'turn.dart';
 
 /// Owns the conversation's turn list (`T11`).
@@ -23,16 +24,20 @@ import 'turn.dart';
 /// Built in `AppServices.bootstrap()` like every other shared object, and
 /// bound to the app's one [ConnectionController] instead of opening a second
 /// source of truth for the registry, the address or the token.
+///
+/// It also owns the one write in flight (`T13`): [pendingWrite] is the draft the
+/// conversation is assembling, and the next utterance is an answer to it rather
+/// than a new command. The resolver stays stateless and receives that draft as a
+/// parameter.
 class ConversationController extends ChangeNotifier {
   ConversationController(
     ConnectionController connection, {
     OperationResolver? resolver,
   }) : _connection = connection,
-       // The shipped resolver is the deterministic one: `T12`'s read path is
-       // in it and `T13` extends the same class with the write path. It is
-       // defaulted here rather than required, the same way
-       // `ConnectionController` defaults `BackendProbe` when the caller does
-       // not hand it one.
+       // The shipped resolver is the deterministic one: `T12`'s read path and
+       // `T13`'s create path are both in it. It is defaulted here rather than
+       // required, the same way `ConnectionController` defaults `BackendProbe`
+       // when the caller does not hand it one.
        _resolver = resolver ?? const DeterministicOperationResolver(),
        _executor = connection.buildExecutor() {
     _connection.addListener(_onConnectionChanged);
@@ -44,6 +49,17 @@ class ConversationController extends ChangeNotifier {
   final ConnectionController _connection;
   final OperationResolver _resolver;
   final OperationExecutor _executor;
+
+  /// The write in flight, if any (`T13`). Null when the conversation is not in
+  /// the middle of a create.
+  ///
+  /// It lives here and never inside the resolver, which is stateless: owning
+  /// the draft is what makes the next utterance an answer to a question instead
+  /// of a new command.
+  PendingWrite? _pending;
+
+  /// The write the conversation is assembling, or null when there is none.
+  PendingWrite? get pendingWrite => _pending;
 
   /// The app pins its locale to Spanish in `main.dart` rather than exposing it
   /// as a setting, so constructing the concrete localizations class directly
@@ -88,7 +104,25 @@ class ConversationController extends ChangeNotifier {
     unawaited(_resolve(trimmed, pendingId));
   }
 
+  /// Confirms the write the band is showing.
+  ///
+  /// It submits the control's own label as an ordinary utterance through
+  /// [submitUtterance], so the affirmative rule and the confirmation logic exist
+  /// in exactly one place — the resolver — and a touch and a spoken *sí* cannot
+  /// drift apart.
+  void confirmPendingWrite() =>
+      submitUtterance(_l10n.conversationWriteConfirmAction);
+
+  /// Cancels the write the band is showing, the same way: through the ordinary
+  /// resolution path, so a touch and a spoken *no* share one implementation.
+  void cancelPendingWrite() =>
+      submitUtterance(_l10n.conversationWriteCancelAction);
+
   Future<void> _resolve(String utterance, String pendingId) async {
+    // The draft in flight before this resolve: the resolver receives it, so it
+    // is read here, and it is what tells an outcome that moved the conversation
+    // from one that only answered again.
+    final previous = _pending;
     final registry = _connection.apiRegistry;
     final ResolverOutcome outcome;
     if (registry == null) {
@@ -106,22 +140,49 @@ class ConversationController extends ChangeNotifier {
         registry: registry,
         executor: _executor,
         l10n: _l10n,
+        pending: previous,
       );
     }
 
     final index = _turns.indexWhere((turn) => turn.id == pendingId);
     if (index == -1) return;
-    final pending = _turns[index];
-    if (pending is! AssistantTurn) return;
-    _turns[index] = pending.copyWith(
-      text: outcome.replyText,
-      status: outcome.status,
-      evidence: outcome.evidence,
-    );
+    final pendingTurn = _turns[index];
+    if (pendingTurn is! AssistantTurn) return;
+
+    final advanced =
+        previous == null ||
+        outcome.pending == null ||
+        previous != outcome.pending;
+    _pending = outcome.pending;
+    if (outcome.pending != null && advanced) {
+      // The band owns the question; a sentence that does not move the
+      // conversation is a turn. A question or a read-back advances the
+      // conversation, so it lives in the Response focus band and not in the
+      // list: the assistant turn added for this utterance is removed and the
+      // user's turn stays, while the pending "Resolviendo la indicación…" turn
+      // is what the operator sees while the answer is being worked out, before
+      // it settles into a question the band shows.
+      //
+      // A rejected answer or an unrecognised confirmation advances nothing, so
+      // it stays a turn where the operator can read it, and the band keeps
+      // asking its own question — two different sentences, never the same one
+      // twice. The measured defect was exactly that: an invalid field value
+      // (`conversationWriteFieldInvalid`) was rejected silently, because the
+      // turn carrying the sentence was removed while the band only re-asked.
+      _turns.removeAt(index);
+    } else {
+      _turns[index] = pendingTurn.copyWith(
+        text: outcome.replyText,
+        status: outcome.status,
+        evidence: outcome.evidence,
+      );
+    }
     logEvent('conversation', {
       'action': 'resolved',
       'status': outcome.status.name,
       'operation': outcome.evidence?.operationKey,
+      'pending': _pending != null,
+      'advanced': advanced,
     });
     notifyListeners();
   }

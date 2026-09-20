@@ -15,26 +15,76 @@ library;
 
 import '../core/text_fold.dart';
 
+/// One token of an utterance, with the raw text it came from and where it sat.
+///
+/// The read path needs only the folded form ([utteranceTokens]); the write path
+/// has to hand the operator's own words back — the captured values and the
+/// read-back (`FR-MC02`, `FR-MC03`) — and folding has already thrown the
+/// accents and capitals away. Keeping both forms, plus the offsets, lets every
+/// consumer take what it needs from one pass.
+final class UtteranceToken {
+  const UtteranceToken({
+    required this.raw,
+    required this.folded,
+    required this.start,
+    required this.end,
+  });
+
+  /// Exactly as it appeared, accents and case intact.
+  final String raw;
+
+  /// [foldText] of [raw]: what matching compares.
+  final String folded;
+
+  /// Offset of the first character of [raw] in the utterance.
+  final int start;
+
+  /// Offset one past the last character of [raw] in the utterance.
+  final int end;
+}
+
+/// Splits a raw utterance into tokens with their spans.
+///
+/// Whitespace, punctuation and brackets are the split points; a token whose
+/// folded form is empty is dropped rather than kept as a positional hole, so a
+/// [UtteranceToken.start]/[UtteranceToken.end] pair may have gaps where
+/// separators were.
+///
+/// `Pérez` is one token whose [UtteranceToken.raw] is `Pérez` and whose
+/// [UtteranceToken.folded] is `perez`. The digits survive, because a spoken id
+/// ("cliente 42") is a token the resolver has to see.
+List<UtteranceToken> utteranceTokenSpans(String utterance) {
+  final tokens = <UtteranceToken>[];
+  var cursor = 0;
+  for (final separator in _nonWord.allMatches(utterance)) {
+    _addToken(tokens, utterance, cursor, separator.start);
+    cursor = separator.end;
+  }
+  _addToken(tokens, utterance, cursor, utterance.length);
+  return tokens;
+}
+
 /// Splits a raw utterance into folded, comparable tokens.
 ///
-/// The recognizer returns punctuation, casing and accents that carry no
-/// meaning for matching, so every token is folded exactly the way entity names
-/// are (`foldText`) before anything compares them. Whitespace, punctuation and
-/// brackets are the split points; a folded token that is empty is dropped
-/// rather than kept as a positional hole.
-///
-/// The digits survive, because a spoken id ("cliente 42") is a token the
-/// resolver has to see.
-///
-/// `¿Cuántos clientes tengo?` becomes `['cuantos', 'clientes', 'tengo']`, and
-/// `Pérez` stays one token (`perez`).
-List<String> utteranceTokens(String utterance) {
-  final tokens = <String>[];
-  for (final piece in utterance.split(_nonWord)) {
-    final folded = foldText(piece);
-    if (folded.isNotEmpty) tokens.add(folded);
-  }
-  return tokens;
+/// The recognizer returns punctuation, casing and accents that carry no meaning
+/// for matching, so every token is folded exactly the way entity names are
+/// (`foldText`) before anything compares them. This is the folded projection of
+/// [utteranceTokenSpans], so there is exactly one tokenizer in the app:
+/// `¿Cuántos clientes tengo?` becomes `['cuantos', 'clientes', 'tengo']`.
+List<String> utteranceTokens(String utterance) =>
+    utteranceTokenSpans(utterance).map((token) => token.folded).toList();
+
+void _addToken(
+  List<UtteranceToken> tokens,
+  String utterance,
+  int start,
+  int end,
+) {
+  if (end <= start) return;
+  final raw = utterance.substring(start, end);
+  final folded = foldText(raw);
+  if (folded.isEmpty) return;
+  tokens.add(UtteranceToken(raw: raw, folded: folded, start: start, end: end));
 }
 
 /// Anything that is not a letter with a Spanish accent or a digit. It is the
@@ -135,6 +185,118 @@ const Set<String> utteranceFillers = <String>{
   'necesito',
   'puedo',
 };
+
+/// The words that ask the app to *create* a record.
+///
+/// They are input vocabulary, not copy: the operator says them, the app never
+/// renders them. They mark the utterance as a create (`T13`) and are the left
+/// edge of the §5.1 value window (`Agregá a Juan Pérez como cliente`).
+const Set<String> createTriggers = <String>{
+  'agrega',
+  'agregar',
+  'agregame',
+  'crea',
+  'crear',
+  'creame',
+  'inserta',
+  'insertar',
+  'registra',
+  'registrar',
+  'anota',
+  'anotar',
+  'carga',
+  'cargar',
+  'alta',
+  'suma',
+  'sumar',
+};
+
+/// The delete and update verbs this build does **not** implement.
+///
+/// They are input vocabulary, not copy. Their only job is to keep an utterance
+/// like *borrá el cliente 1* from falling through to the read path and being
+/// answered with a listing — reading a record the operator asked to destroy
+/// would be a lie about what the app did. `T13b` replaces this guard with the
+/// destructive conversation of `FR-MC05`.
+const Set<String> mutationTriggers = <String>{
+  'borra',
+  'borrar',
+  'borrame',
+  'elimina',
+  'eliminar',
+  'eliminame',
+  'suprime',
+  'suprimir',
+  'quita',
+  'quitar',
+  'modifica',
+  'modificar',
+  'modificame',
+  'actualiza',
+  'actualizar',
+  'actualizame',
+  'cambia',
+  'cambiar',
+  'cambiame',
+  'edita',
+  'editar',
+  'editalo',
+};
+
+/// The words that accept a pending write (`FR-MC03`).
+///
+/// They are input vocabulary, not copy: the operator says them, the app never
+/// renders them, and the band's *Confirmar* control submits one of them through
+/// the same resolution path as speech so the affirmative rule exists once.
+const Set<String> affirmativeAnswers = <String>{
+  'si',
+  'confirmo',
+  'confirmar',
+  'confirma',
+  'confirmado',
+  'dale',
+  'ok',
+  'okey',
+  'listo',
+  'correcto',
+  'hacelo',
+  'mandale',
+  'adelante',
+  'afirmativo',
+  'acuerdo',
+};
+
+/// The words that discard a pending write (`FR-MC03`).
+///
+/// They are input vocabulary, not copy, for the same reason and with the same
+/// single-path rule as [affirmativeAnswers]: the band's *Cancelar* control
+/// submits one of these rather than carrying a second implementation of what a
+/// cancel means.
+const Set<String> negativeAnswers = <String>{
+  'no',
+  'cancelar',
+  'cancela',
+  'cancelalo',
+  'cancelala',
+  'dejalo',
+  'dejala',
+  'espera',
+  'para',
+  'parar',
+  'nada',
+  'anular',
+  'anula',
+  'abortar',
+  'atras',
+};
+
+/// The connector that introduces the entity after a create value.
+///
+/// It is input vocabulary, not copy. It exists for one narrow shape, the §5.1
+/// one — *Agregá a Juan Pérez como cliente* — where `como` sits between the
+/// value and the entity mention. Any other phrasing is not guessed at: the
+/// field is simply asked for, one at a time (`FR-MC02`).
+const Set<String> createValueConnectors = <String>{'como'};
 
 /// The plural of [noun], by the general rule of Spanish morphology.
 ///

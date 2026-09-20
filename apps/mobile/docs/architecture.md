@@ -556,3 +556,74 @@ path an utterance takes.
   *previous* process's turns; the new process replaces them with the greeting
   within about 30 s. Since turns are not persisted anywhere, history appearing
   after a reinstall is a stale window, not restored state.
+
+## 16. The write path: one draft, one question at a time (T13)
+
+`FR-MC02` and `FR-MC03` are one conversation: ask for exactly one missing
+required field, keep the draft visible, read the complete record back in domain
+language, and only then `POST`. `T13` ships the create half; the destructive half
+(`FR-MC05`) is `T13b`.
+
+- **The draft lives in the conversation, not in the resolver.** `PendingWrite`
+  (`lib/conversation/pending_write.dart`) is the one write in flight, owned by
+  `ConversationController` and handed to the resolver as a parameter, so the
+  resolver stays stateless (§14) while a write spans several utterances. A
+  non-null draft is what makes the next utterance an *answer* rather than a new
+  command. It is a value with `==`, and that equality is load-bearing: the
+  controller compares the draft before and after a resolve to know whether the
+  outcome advanced the conversation or only repeated its question.
+- **One field at a time, in schema order.** The list walked is
+  `EntityModel.requiredWritableFields`; the question names one field, the draft
+  shows what is captured, and no body is built until `PendingWrite.isComplete` —
+  `FR-MC02`'s partial body is unreachable by construction, and `_submitWrite`
+  re-checks it anyway.
+- **Values are converted when they are captured, not when they are sent.**
+  `lib/conversation/field_value.dart` turns a spoken answer into the JSON value
+  the declared type asks for (`string`, `integer`, `number`, `boolean`) and
+  refuses the rest: a relation or an array is not something this conversation
+  collects by voice, and it says so instead of storing nonsense. A refusal never
+  mutates the draft.
+- **The initial value is extracted only in the §5.1 shape.** *Agregá a Juan
+  Pérez como cliente*: a create trigger, the value, the connector `como`, the
+  entity mention. The phrase is rebuilt from `utteranceTokenSpans` offsets so
+  `Juan Pérez` keeps its accents and capitals, one leading `a` is skipped because
+  that is Spanish grammar and not data, and the phrase fills the first required
+  field **only** when that field is textual. Every other phrasing is asked for
+  instead of guessed at.
+- **A write verb never falls through to the read path.** Delete and update verbs
+  are matched by `mutationTriggers` and refused with the entity named
+  (`reason=write_not_implemented`) until `T13b`. Before this guard existed,
+  *borrá el cliente 1* found the `get` role and **read** the record it was asked
+  to destroy.
+- **A 2xx is the only thing that says the record was created** (`FR-MC03`). A
+  transport failure or a non-2xx drops the draft and reports the failure with its
+  evidence: nothing was persisted, and `T14`'s outbox is what will keep an
+  unacknowledged write. A cancel reports that nothing was sent and can never look
+  like a success.
+- **The Response focus band owns the question** (`lib/presentation/widgets/
+  response_focus.dart`; UX spec Pass 2 and Pass 3). The question — or the
+  read-back — is Primary, the draft is Secondary beneath it, and the confirmation
+  carries two controls of unequal weight with the committing one not
+  pre-selected. The two controls submit their own labels as ordinary utterances
+  through `ConversationController`, so a tap, a typed *sí* and a spoken *sí* take
+  exactly one path through the resolver.
+- **The band owns the question; a sentence that does not move the conversation is
+  a turn.** A question or a read-back advances the draft, so the assistant turn is
+  removed and the band is the only surface — the same question never appears
+  twice. A rejected value or an unrecognised confirmation advances nothing, so it
+  stays a turn the operator can read while the band keeps asking. That edge was
+  measured, not reasoned: the first version removed the turn in both cases and a
+  rejected `monto` was refused silently on the handset, with the sentence in the
+  log and nothing on screen.
+- **Captured values are never logged.** The `[umlive][resolver]` lines carry
+  `result=write`, `intent=create`, `entity`, `operation`, `phase`, the asked
+  field's *name*, `extracted` and a *length* — never a value and never the
+  utterance text, the discipline `T11` set for the bearer token and the
+  transcript.
+- **Verified on `TFY-LX3`** against the fixture backend: the §5.1 create with a
+  volunteered name (nothing sent before the confirmation, then `201`), the
+  two-field `dirección` loop closed with a typed *sí*, a rejected `monto` (*mil
+  quinientos*) visible as a turn with the question still standing and no `POST`, a
+  neutral confirmation answered with *"La operación sigue esperando
+  confirmación."*, a cancel that wrote nothing, and *borrá el cliente 5* refused
+  with no executor line at all.
