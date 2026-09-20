@@ -120,7 +120,10 @@ class OutboxOperationExecutor extends OperationExecutor {
   /// stays exactly as the inner call left it — false — because the backend
   /// never received this write. It is the caller's job to branch on `queued`
   /// before `succeeded`, which is what keeps a queued write from ever being
-  /// reported as done.
+  /// reported as done. `fromCache` and `cacheAge` are copied by hand with every
+  /// other field: this decorator has no opinion about them, and a field that
+  /// silently stopped travelling through here would be a field the caller
+  /// stopped seeing.
   static OperationResult _asQueued(OperationResult result) => OperationResult(
     operationKey: result.operationKey,
     method: result.method,
@@ -132,5 +135,7 @@ class OutboxOperationExecutor extends OperationExecutor {
     fieldErrors: result.fieldErrors,
     missingPathParameter: result.missingPathParameter,
     queued: true,
+    fromCache: result.fromCache,
+    cacheAge: result.cacheAge,
   );
 }

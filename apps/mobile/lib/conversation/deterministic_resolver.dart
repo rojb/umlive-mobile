@@ -268,7 +268,17 @@ class DeterministicOperationResolver implements OperationResolver {
     );
     final evidence = OperationEvidence.fromResult(result);
 
-    if (!result.succeeded) {
+    // A cached read is branched on **before** `succeeded` — and after `queued`,
+    // which a read can never be, because the outbox never queues a safe method.
+    // `fromCache` means a real answer to the operator that came from storage
+    // instead of from the backend (`FR-MD05`), so `succeeded` is false for it;
+    // the same ordering discipline a queued write follows, for the same reason:
+    // an answer that did not come from the backend must never be reported as if
+    // it had. A cached result that arrived without its age is treated as the
+    // failure it is, so a remembered answer can never render as a live one.
+    final cacheAge = result.fromCache ? result.cacheAge : null;
+
+    if (cacheAge == null && !result.succeeded) {
       // The call ran and the backend did not answer correctly. `T22` replaces
       // this sentence with one derived from the status and the `errors` keys;
       // the evidence travels with the turn either way.
@@ -285,8 +295,9 @@ class DeterministicOperationResolver implements OperationResolver {
       );
     }
 
-    // The count is computed here, from the full collection the backend
-    // returned: the generated API publishes no count endpoint (`FR-ME02`).
+    // The count is computed here, from the full body the app is answering
+    // from — the backend's or the remembered one, the same way either way: the
+    // generated API publishes no count endpoint (`FR-ME02`).
     final body = result.decodedBody;
     int? recordCount;
     if (plan.intent == _Intent.get) {
@@ -309,25 +320,42 @@ class DeterministicOperationResolver implements OperationResolver {
       );
     }
 
+    // A remembered answer carries its age, as the UX spec's *Stale / cached*
+    // row requires: it is a real answer and it says how old it is
+    // (`FR-MD05`). Both sentences come from the ARB and the app ships exactly
+    // one locale (`l10n.yaml`), which is why a plain space is the separator
+    // between them and no locale-specific joiner is needed.
+    final answer = l10n.conversationCountAnswer(
+      recordCount,
+      name,
+      pluralizeSpanishNoun(name),
+    );
+
     return _finish(
       utteranceLength: length,
       result: _resultRead,
-      replyText: l10n.conversationCountAnswer(
-        recordCount,
-        name,
-        pluralizeSpanishNoun(name),
-      ),
+      replyText: cacheAge == null
+          ? answer
+          : '$answer ${l10n.conversationCachedAge(cacheAge.inMinutes)}',
       status: TurnStatus.resolved,
       intent: intent,
       entity: name,
       operation: operation.key,
       count: recordCount,
+      // Present only on a cached answer, so a live read's line is exactly the
+      // one it always was.
+      cache: cacheAge == null ? null : true,
+      ageMs: cacheAge?.inMilliseconds,
       evidence: evidence,
     );
   }
 
   /// Writes the one `[umlive][resolver]` line this resolution gets and builds
   /// its outcome, so every return above is logged the same way.
+  ///
+  /// [cache] and [ageMs] are the two columns `T17` adds, and they are written
+  /// only by an answer that came from the read cache (`FR-MD05`): they are
+  /// absent on a live answer rather than false.
   ///
   /// The utterance's text is never logged — only its length, the same
   /// discipline `T11` applies and `log.dart` applies to the bearer token. A
@@ -348,6 +376,8 @@ class DeterministicOperationResolver implements OperationResolver {
     String? entity,
     String? operation,
     int? count,
+    bool? cache,
+    int? ageMs,
     String? phase,
     String? field,
     bool? extracted,
@@ -363,6 +393,10 @@ class DeterministicOperationResolver implements OperationResolver {
       'entity': ?entity,
       'operation': ?operation,
       'count': ?count,
+      // `FR-MD05`: a cached read is a real answer and the log has to be able to
+      // tell it from a live one without reading the sentence.
+      'cache': ?cache,
+      'age_ms': ?ageMs,
       'phase': ?phase,
       'field': ?field,
       'extracted': ?extracted,

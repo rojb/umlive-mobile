@@ -74,6 +74,8 @@ class OperationResult {
     this.fieldErrors,
     this.missingPathParameter,
     this.queued = false,
+    this.fromCache = false,
+    this.cacheAge,
   });
 
   /// [ApiOperation.key] of the operation that was called.
@@ -121,8 +123,21 @@ class OperationResult {
   /// thing the queue exists to prevent.
   final bool queued;
 
-  /// True for a plain 2xx outcome. A queued result is never a success: this is
-  /// false for it however the inner call went.
+  /// True when the answer came from the read cache instead of the backend
+  /// (`FR-MD05`): it is a real answer to the operator and it is **stale**.
+  ///
+  /// [succeeded] stays false, because the backend did not answer, and a
+  /// caller must branch on this **before** it branches on [succeeded] — the
+  /// same ordering discipline [queued] follows, for the same reason: a cached
+  /// read is not a live one and must never be reported as one.
+  final bool fromCache;
+
+  /// How old the cached answer is, when [fromCache] is true.
+  final Duration? cacheAge;
+
+  /// True for a plain 2xx outcome. Neither a queued result nor a cache-answered
+  /// one is ever a success: this is false for both however the inner call went,
+  /// because in both cases the backend did not answer **this** call.
   bool get succeeded =>
       failure == OperationFailureKind.none &&
       statusCode != null &&

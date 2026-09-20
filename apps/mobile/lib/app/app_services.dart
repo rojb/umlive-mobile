@@ -6,6 +6,7 @@ import '../core/log.dart';
 import '../data/app_database.dart';
 import '../data/outbox_repository.dart';
 import '../data/profile_repository.dart';
+import '../data/read_cache_repository.dart';
 import '../data/registry_repository.dart';
 import '../presentation/connection_controller.dart';
 import '../voice/voice_controller.dart';
@@ -21,6 +22,7 @@ class AppServices {
     required this.profiles,
     required this.registry,
     required this.outbox,
+    required this.readCache,
     required this.connection,
     required this.voice,
     required this.conversation,
@@ -34,6 +36,11 @@ class AppServices {
   /// here so a later queue screen (`T18`) has the same single owner every other
   /// repository has.
   final OutboxRepository outbox;
+
+  /// The read cache a read the backend did not answer is answered from (`T17`,
+  /// `FR-MD05`). Kept here as the same single owner every other repository has;
+  /// the executor stack the connection controller builds is what writes it.
+  final ReadCacheRepository readCache;
 
   final ConnectionController connection;
 
@@ -62,7 +69,16 @@ class AppServices {
     );
     final registry = RegistryRepository(database: database.database);
     final outbox = OutboxRepository(database: database.database);
-    final connection = ConnectionController(profiles, outbox, registry);
+    // Opened on the same shared [Database] as every other repository: the
+    // `read_cache` table already exists at schema version 1, so this adds a
+    // consumer and no migration.
+    final readCache = ReadCacheRepository(database: database.database);
+    final connection = ConnectionController(
+      profiles,
+      outbox,
+      registry,
+      readCache,
+    );
     await connection.loadStoredProfile();
     logEvent('app', {
       'action': 'bootstrap',
@@ -75,6 +91,7 @@ class AppServices {
       profiles: profiles,
       registry: registry,
       outbox: outbox,
+      readCache: readCache,
       connection: connection,
       voice: voice,
       conversation: ConversationController(

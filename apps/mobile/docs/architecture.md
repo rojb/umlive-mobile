@@ -120,9 +120,10 @@ CREATE TABLE outbox(
 CREATE TABLE read_cache(
   profile_id    TEXT NOT NULL,
   operation_key TEXT NOT NULL,
+  path          TEXT NOT NULL,
   fetched_at    INTEGER NOT NULL,
   response_json TEXT NOT NULL,
-  PRIMARY KEY(profile_id, operation_key)
+  PRIMARY KEY(profile_id, operation_key, path)
 );
 ```
 
@@ -136,7 +137,17 @@ CREATE TABLE read_cache(
 - `outbox` is written **before** any acknowledgement reaches the user
   (`FR-MD02`), and survives a force-kill (`FR-MD06`).
 - `read_cache` exists so an offline read can be answered and labelled with its
-  age (`FR-MD05`). Writes are never answered from cache.
+  age (`FR-MD05`). Writes are never answered from cache — they queue, and the
+  two mechanisms never borrow each other's.
+- **Schema version 2 is the first extension of this schema.** `read_cache` gained
+  `path` and now keys on `(profile_id, operation_key, path)`, because one
+  operation can address many records: `GET /api/cliente/{id}` keyed by operation
+  alone answered an offline `cliente 2` with `cliente 1`'s body, which is the app
+  presenting the wrong record as the answer. The upgrade **drops and recreates**
+  `read_cache`: it is disposable remembered data, and losing it can only make the
+  app ask the backend, while a wrong key written into it would make the app
+  answer with the wrong record. A fresh install and an upgrade produce the same
+  table, and `T17` is where it happened.
 
 ## 6. Conventions
 
@@ -813,3 +824,51 @@ target is never inferred.
   (the earlier 83-character sentence took 7.4 s at the same rate). A future
   verification that reads that gap as latency will think the engine is slow when
   it is only talking.
+
+## 21. Reads from the cache, never confounded with writes (T17)
+
+- **The cache is the outermost decorator, and it has to be.**
+  `buildExecutor()` composes `Caching(Reachability(Outbox(Http)))`, so the
+  reachability reporter **inside** the cache sees the real attempt and correctly
+  records that the backend did not answer, while readers only see the answer the
+  cache substituted. A cached read therefore never makes the app claim the backend
+  is alive.
+- **Writes queue; reads cache; neither borrows the other's mechanism** (`FR-MD05`).
+  A write passes straight through the cache decorator: it is never consulted and
+  never written for a write. Measured offline: the queued create of `pago`
+  produced `action=enqueue` with **zero** `[umlive][cache]` lines in that window.
+- **A read is cached by the path it resolved to**, not by the operation key
+  (§5's version 2). `GET /api/cliente/{id}` under one key answered an offline
+  `cliente 2` with `cliente 1`'s body, so the row is keyed
+  `(profile_id, operation_key, path)`. Measured after the fix: `cliente 9` hit
+  `action=hit … path=/api/cliente/9`, and `cliente 2` — never cached —
+  produced `action=miss … path=/api/cliente/2` and the honest failure sentence,
+  with none of record 9's data anywhere in it.
+- **Only "the backend did not answer" is served from the cache.** A `2xx` read is
+  stored and returned live; a `4xx`/`5xx` is a real answer and is reported as-is,
+  so a cached success can never mask a live refusal; a timeout or a transport
+  failure falls back to storage, and a miss is a failure that says so. An offline
+  read with nothing remembered does not invent an answer.
+- **A cached answer is a real answer that carries its age.** The turn is
+  `resolved` — it is what the operator asked for — and the age sentence from the
+  ARB follows it (`FR-MD05`, the UX spec's *Stale / cached* row). Measured:
+  `Hay 1 cliente. Datos guardados hace 1 minuto.` with
+  `cache=true age_ms=70317` on the resolver line. `succeeded` stays **false** for
+  a cached result, and the resolver branches on `fromCache` before it branches on
+  `succeeded`, exactly as it does for `queued`: a remembered answer is not a live
+  one and must never be reported as one.
+- **No refresh affordance is needed for this release.** A read goes to the backend
+  whenever the backend answers and updates the cache on the way through, so the
+  next read after a reconnect is already fresh; the cache is only ever a
+  fallback. `FR-MD05`'s "re-issued on reconnect only if the user asked" is
+  satisfied by being stricter than it: nothing stale is served while a live
+  answer is available.
+- **The cache is dropped when the address changes**, beside the cached registry
+  and for the same reason: a different backend is a different cache.
+- **Verified on `TFY-LX3`**: the version-1 to version-2 migration ran on the
+  installed database with no `DatabaseException` and `user_version = 2` read back
+  from the device; two live reads were stored (`path=/api/cliente`,
+  `path=/api/cliente/9`); going offline turned the same read into
+  `action=hit … age_ms=70316` with the age sentence on screen; the never-cached
+  record missed and failed honestly; and the write went to the queue with no cache
+  line at all.

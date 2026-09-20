@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../conversation/cache_executor.dart';
 import '../conversation/operation_executor.dart';
 import '../conversation/outbox_executor.dart';
 import '../conversation/reachability_executor.dart';
@@ -7,6 +8,7 @@ import '../core/log.dart';
 import '../data/connection_profile.dart';
 import '../data/outbox_repository.dart';
 import '../data/profile_repository.dart';
+import '../data/read_cache_repository.dart';
 import '../data/registry_repository.dart';
 import '../net/backend_address.dart';
 import '../net/backend_probe.dart';
@@ -37,7 +39,8 @@ class ConnectionController extends ChangeNotifier {
   ConnectionController(
     this._profiles,
     this._outbox,
-    this._registry, {
+    this._registry,
+    this._readCache, {
     BackendProbe? probe,
   }) : _probe = probe ?? BackendProbe();
 
@@ -49,6 +52,13 @@ class ConnectionController extends ChangeNotifier {
   final OutboxRepository _outbox;
 
   final RegistryRepository _registry;
+
+  /// The read cache a read the backend did not answer is answered from
+  /// (`T17`, `FR-MD05`). Owned here so the executor stack this controller
+  /// builds can wrap the transport with it, and so `T18`'s queue screen and
+  /// later surfaces read the same instance instead of a second one.
+  final ReadCacheRepository _readCache;
+
   final BackendProbe _probe;
 
   ConnectionProfile? _profile;
@@ -89,6 +99,11 @@ class ConnectionController extends ChangeNotifier {
   /// it are the same fact — the alternative would be a second source of truth
   /// for the active profile, which `docs/architecture.md` §10 forbids.
   String? get profileId => _profile?.id;
+
+  /// The read cache, exposed so the queue screen (`T18`) and later surfaces
+  /// read the same instance the executor stack writes to. It is one cache per
+  /// profile, exactly like the registry and the outbox.
+  ReadCacheRepository get readCache => _readCache;
 
   /// The state `FR-MA05` puts on screen.
   ReachabilityState get reachability => _reachability;
@@ -139,20 +154,23 @@ class ConnectionController extends ChangeNotifier {
   ///
   /// The stack, outermost first, one job per layer:
   ///
+  /// * [CachingOperationExecutor] — answers a read the backend did not answer
+  ///   from the read cache, with its age (`FR-MD05`). It is **outside** the
+  ///   reachability reporter on purpose: the reporter has to see the real
+  ///   attempt, so a cached read is still recorded as the backend not having
+  ///   answered, and the cache only replaces what the caller receives.
   /// * [ReachabilityOperationExecutor] — reports **every** call's outcome to
   ///   [reportOperationOutcome], so `FR-MD01`'s *online means the backend
   ///   answered* is decided by real operation traffic and not only by the
-  ///   description-path probe. It is the outermost layer on purpose: it sees
-  ///   exactly the [OperationResult] the conversation received, including one
-  ///   the outbox layer marked as queued.
+  ///   description-path probe.
   /// * [OutboxOperationExecutor] — persists a write the backend never received
   ///   to the outbox before any acknowledgement reaches the operator
   ///   (`FR-MD02`).
   /// * [HttpOperationExecutor] — the only layer that makes a request.
   ///
   /// The resolver keeps receiving a plain [OperationExecutor] and never learns
-  /// what is wrapped around it, and every later decorator (`T17`'s read cache)
-  /// composes here rather than in a screen or in the resolver.
+  /// what is wrapped around it, and every later decorator composes here rather
+  /// than in a screen or in the resolver.
   ///
   /// Chosen over adding a public token getter: the token stays a private
   /// field of this class, and the executor only ever sees the current address,
@@ -161,22 +179,29 @@ class ConnectionController extends ChangeNotifier {
   /// change or a profile change is therefore visible to a caller holding an
   /// executor built before it happened, with no second source of truth to fall
   /// out of sync.
-  OperationExecutor buildExecutor() => ReachabilityOperationExecutor(
-    OutboxOperationExecutor(
-      _buildHttpExecutor(),
-      _outbox,
-      () => _profile?.id,
+  OperationExecutor buildExecutor() => CachingOperationExecutor(
+    ReachabilityOperationExecutor(
+      OutboxOperationExecutor(
+        _buildHttpExecutor(),
+        _outbox,
+        () => _profile?.id,
+      ),
+      reportOperationOutcome,
     ),
-    reportOperationOutcome,
+    _readCache,
+    () => _profile?.id,
   );
 
   /// The executor a **replay** goes through: the same transport and the same
-  /// reachability reporting, deliberately **without** the outbox decorator.
+  /// reachability reporting, deliberately **without** the outbox decorator
+  /// **and without** the read cache.
   ///
   /// A drain that fails must not enqueue a second row: the item is already in
   /// the queue, and a fresh row would carry a fresh idempotency key, which is
-  /// exactly the duplicate `FR-MD09` exists to prevent. [buildExecutor] keeps
-  /// the full stack for the conversation; this one is for `T16`'s
+  /// exactly the duplicate `FR-MD09` exists to prevent. Nor may it read from the
+  /// cache: **a replay is a write**, so it never consults the read cache and is
+  /// never written to it (`FR-MD05`, the *never conflated* rule). [buildExecutor]
+  /// keeps the full stack for the conversation; this one is for `T16`'s
   /// `OutboxDrainer`.
   OperationExecutor buildReplayExecutor() => ReachabilityOperationExecutor(
     _buildHttpExecutor(),
@@ -404,12 +429,20 @@ class ConnectionController extends ChangeNotifier {
     // another backend's entities as this one's.
     if (previousUrl != null && previousUrl != address.display) {
       await _registry.clear(stored.profile.id);
+      // The same reason as the registry's, for the same pair of rows: a cached
+      // read carries another backend's data, and answering offline from it
+      // would report a different backend's records as this one's.
+      await _readCache.clear(stored.profile.id);
       _cachedRegistry = null;
       _apiRegistry = null;
       _registryFromCache = false;
       logEvent('registry', {
         'kind': 'cache',
         'result': 'cleared',
+        'reason': 'address_changed',
+      });
+      logEvent('cache', {
+        'action': 'clear',
         'reason': 'address_changed',
       });
     }

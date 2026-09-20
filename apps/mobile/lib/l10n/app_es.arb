@@ -482,6 +482,16 @@
     }
   },
 
+  "conversationCachedAge": "{minutes, plural, =0{Datos guardados hace instantes.} =1{Datos guardados hace 1 minuto.} other{Datos guardados hace {minutes} minutos.}}",
+  "@conversationCachedAge": {
+    "description": "T17, FR-MD05 and the UX spec's Stale / cached row: a read answered from the read cache is a real answer to the operator and it carries its age, so it is never presented as live data. The resolver joins it to the answer sentence with a single space. The cached value is re-read from the backend on the next read once the backend answers, so no refresh affordance is needed for this release. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+
   "conversationNotUnderstoodNoEntity": "No reconocí ninguna entidad conocida en esa indicación. Conozco: {entities}.",
   "@conversationNotUnderstoodNoEntity": {
     "description": "T12: refusal when no entity the registry knows was named. The vocabulary comes from the registry (FR-MC07), which is why it can name what it does know instead of only what it missed. Neutral register, no tuteo or voseo.",
