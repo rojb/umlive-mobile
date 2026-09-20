@@ -236,7 +236,57 @@
 
   "settingsTechnicalModeHelp": "Muestra el detalle técnico de cada turno.",
   "@settingsTechnicalModeHelp": {
-    "description": "Explains what technical mode reveals. The switch is disabled until T23 wires it."
+    "description": "Explains what technical mode reveals. The switch is live since T23 (FR-ME06): flipping it is what makes the technical block appear under the turns of the conversation."
+  },
+
+  "technicalMethodLabel": "Método",
+  "@technicalMethodLabel": {
+    "description": "T23, FR-ME06: the first row of the technical block under an assistant turn, naming the HTTP verb the app issued. Technical mode is the Author's and the Evaluator's view of the same conversation, and it only ever appears when the operator turned the mode on."
+  },
+
+  "technicalPathLabel": "Ruta resuelta",
+  "@technicalPathLabel": {
+    "description": "T23, FR-ME06: the row that carries the path after path-parameter substitution, e.g. /api/cliente/42. It is deliberately the resolved path and never the template: the template is what the app knows, the resolved path is what it actually did, and only the second one defends the claim that the operation came from the discovered document. Neutral register, no tuteo or voseo."
+  },
+
+  "technicalStatusLabel": "Estado",
+  "@technicalStatusLabel": {
+    "description": "T23, FR-ME06: the row that carries the HTTP status the backend answered with. The value beside it is the number, or the technicalStatusNotSent copy when nothing was sent. Neutral register, no tuteo or voseo."
+  },
+
+  "technicalLatencyLabel": "Latencia",
+  "@technicalLatencyLabel": {
+    "description": "T23, FR-ME06: the row that carries how long the call that got an answer took. The value beside it is the milliseconds, or the technicalLatencyUnknown copy when there was no answered call. Neutral register, no tuteo or voseo."
+  },
+
+  "technicalStatusNotSent": "No enviado",
+  "@technicalStatusNotSent": {
+    "description": "T23, FR-ME06: the status row of a turn whose call never reached the backend — a queued write. It says so plainly, because an empty field would read as a backend that answered and a zero would read as a fast success, and a queued write that looks done is the one thing the queue exists to prevent. Neutral register, no tuteo or voseo."
+  },
+
+  "technicalLatencyUnknown": "Sin medir",
+  "@technicalLatencyUnknown": {
+    "description": "T23, FR-ME06: the latency row of that same turn. Nothing was answered, so there is no latency to report; the copy states the absence instead of showing a blank, and never a zero, which would read as a fast success. Neutral register, no tuteo or voseo."
+  },
+
+  "technicalLatencyValue": "{ms} ms",
+  "@technicalLatencyValue": {
+    "description": "T23, FR-ME06: the latency row of a call the backend answered. The unit travels with the number because no user-facing string is hard-coded in Dart, and a bare integer under this label would be ambiguous. ‘ms’ is the measurement unit and not prose. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+
+  "technicalDiscovered": "Descubierto desde OpenAPI {version}.",
+  "@technicalDiscovered": {
+    "description": "T23, FR-ME06: the sentence closing the technical block, and the point of the whole block. It names the version of the document the operation was discovered from, taken from the document's own openapi field, so the sentence proves the provenance instead of asserting it — the version is never a constant the app believes. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
   },
 
   "settingsBackendLabel": "Backend",

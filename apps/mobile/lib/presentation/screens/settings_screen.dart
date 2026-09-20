@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/app_scope.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/tokens.dart';
 import '../routes.dart';
@@ -7,11 +8,18 @@ import '../widgets/app_background.dart';
 
 /// Settings (`FR-MG01`): locale, technical mode, backend.
 ///
-/// Every row here is a decision the app has already made, not a preference to
-/// be explored. Locale is fixed because it is not a user choice at launch (UX
-/// spec, Pass 4 "Defaults introduced"); technical mode is off until T23 wires
-/// it; and the backend row is the only way to reach Connect, because the
-/// conversation surface never changes the backend (Pass 3, affordance rules).
+/// Two of the three rows here are decisions the app has already made, not
+/// preferences to be explored: locale is fixed because it is not a user choice
+/// at launch (UX spec, Pass 4 "Defaults introduced"), and the backend row is the
+/// only way to reach Connect, because the conversation surface never changes the
+/// backend (Pass 3, affordance rules).
+///
+/// Technical mode is the exception, and it is the one thing on this screen a
+/// person is meant to change (`T23`, `FR-ME06`): the switch reports the mode's
+/// real state and flips it, and the turn blocks it reveals appear on the
+/// conversation surface immediately — on the turns already there, because the
+/// mode is persistent across turns (Pass 3). It is still off on every launch,
+/// which is the product's default and not this screen's decision.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -19,6 +27,9 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final textTheme = Theme.of(context).textTheme;
+    // The same mode the conversation surface reads: one shared object from the
+    // composition root, so the switch and the turns cannot disagree.
+    final technicalMode = AppScope.of(context).technicalMode;
 
     return AppBackground(
       child: Scaffold(
@@ -38,14 +49,20 @@ class SettingsScreen extends StatelessWidget {
                 // Read-only: there is no second locale to switch to yet.
               ),
               const Divider(),
-              SwitchListTile(
-                secondary: const Icon(Icons.terminal_outlined),
-                title: Text(l10n.settingsTechnicalModeLabel),
-                subtitle: Text(l10n.settingsTechnicalModeHelp),
-                // Locked off rather than hidden: the row is part of the app's
-                // shape, but nothing may imply it works (T23).
-                value: false,
-                onChanged: null,
+              ListenableBuilder(
+                // The switch is the mode's own state, so it is rebuilt by the
+                // mode: flipping it anywhere — this row today, anything later —
+                // leaves the switch telling the truth.
+                listenable: technicalMode,
+                builder: (context, _) => SwitchListTile(
+                  secondary: const Icon(Icons.terminal_outlined),
+                  title: Text(l10n.settingsTechnicalModeLabel),
+                  subtitle: Text(l10n.settingsTechnicalModeHelp),
+                  // Live since `T23`: the operator's own request to see the
+                  // machinery, and the only thing that ever turns it on.
+                  value: technicalMode.enabled,
+                  onChanged: (_) => technicalMode.toggle(),
+                ),
               ),
               const Divider(),
               ListTile(

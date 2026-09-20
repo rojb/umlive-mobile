@@ -11,6 +11,7 @@ import '../widgets/capture_section.dart';
 import '../widgets/reachability_indicator.dart';
 import '../widgets/record_cards.dart';
 import '../widgets/response_focus.dart';
+import '../widgets/technical_details.dart';
 import '../widgets/voice_status_banner.dart';
 
 /// Assistant — the home screen (`FR-MG01`).
@@ -49,6 +50,12 @@ import '../widgets/voice_status_banner.dart';
 /// app made and has not kept, so it is never hidden; an empty one costs zero
 /// attention, so the badge is not drawn at all rather than drawn as a zero
 /// (UX spec Pass 3 and Pass 5).
+///
+/// T23 put the technical block under a turn, behind the operator's own toggle
+/// (`FR-ME06`). It is not a second screen and not a debug build: it is the same
+/// conversation read by the Author and the Evaluator, which is why the toggle
+/// lives in Settings and the block appears under the turns that are already on
+/// screen the moment it is flipped.
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
 
@@ -287,10 +294,21 @@ class _TurnBubble extends StatelessWidget {
         alignment: Alignment.topRight,
         child: _UserTurn(text: text),
       ),
-      AssistantTurn(:final text, :final status, :final result) => Align(
-        alignment: Alignment.topLeft,
-        child: _AssistantTurn(text: text, status: status, result: result),
-      ),
+      AssistantTurn(
+        :final text,
+        :final status,
+        :final result,
+        :final evidence,
+      ) =>
+        Align(
+          alignment: Alignment.topLeft,
+          child: _AssistantTurn(
+            text: text,
+            status: status,
+            result: result,
+            evidence: evidence,
+          ),
+        ),
     };
   }
 }
@@ -310,11 +328,20 @@ class _TurnBubble extends StatelessWidget {
 /// backend's own data (`FR-ME03`). The two stay left-aligned so the answer
 /// reads as one block, and the sentence keeps owning the count while the cards
 /// own the records (`T20`).
+///
+/// `T23` renders the turn's [OperationEvidence] last, under the sentence and
+/// under the cards, and only while the operator's technical mode is on. The
+/// block is gated by a [ListenableBuilder] on the mode itself, so flipping the
+/// toggle redraws exactly these blocks and nothing else on the screen. A turn
+/// with no evidence — the greeting, a refusal, an utterance that never reached
+/// an operation — gets no block at all, because there would be nothing true to
+/// put in it.
 class _AssistantTurn extends StatelessWidget {
   const _AssistantTurn({
     required this.text,
     required this.status,
     this.result,
+    this.evidence,
   });
 
   final String text;
@@ -324,10 +351,14 @@ class _AssistantTurn extends StatelessWidget {
   /// successful or cache-served read.
   final TurnResult? result;
 
+  /// What the call this turn made actually was, or null when no call was made.
+  final OperationEvidence? evidence;
+
   @override
   Widget build(BuildContext context) {
     final queued = status == TurnStatus.queued;
     final records = result;
+    final technical = evidence;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -371,6 +402,20 @@ class _AssistantTurn extends StatelessWidget {
         if (records != null && records.records.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.sm),
           RecordCards(result: records),
+        ],
+        // T23: the machinery, under the sentence and under the cards, and only
+        // while the operator asked for it. The builder listens to the mode
+        // itself rather than the screen listening for the block, so toggling
+        // it re-renders the conversation's blocks and nothing else.
+        if (technical != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          ListenableBuilder(
+            listenable: AppScope.of(context).technicalMode,
+            builder: (context, _) =>
+                AppScope.of(context).technicalMode.enabled
+                ? TechnicalDetails(evidence: technical)
+                : const SizedBox.shrink(),
+          ),
         ],
       ],
     );

@@ -267,7 +267,14 @@ class DeterministicOperationResolver implements OperationResolver {
       operation: operation,
       pathParameters: bound,
     );
-    final evidence = OperationEvidence.fromResult(result);
+    // The document's own `openapi` version travels with the evidence (`T23`):
+    // the registry this operation was just resolved against is the only place
+    // that can say which document it came from, and the version is read off it
+    // rather than assumed.
+    final evidence = OperationEvidence.fromResult(
+      result,
+      openapiVersion: registry.openapiVersion,
+    );
 
     // A cached read is branched on **before** `succeeded` — and after `queued`,
     // which a read can never be, because the outbox never queues a safe method.
@@ -1451,7 +1458,12 @@ class DeterministicOperationResolver implements OperationResolver {
       operation: operation,
       pathParameters: bound,
     );
-    final evidence = OperationEvidence.fromResult(result);
+    // Same provenance as the read path (`T23`): the registry in force at the
+    // moment of the call supplies the document's own version.
+    final evidence = OperationEvidence.fromResult(
+      result,
+      openapiVersion: registry.openapiVersion,
+    );
 
     // A queued delete is **not** a success and must never be reported as one:
     // the backend never received the `DELETE`, so the record is not known to be
@@ -1608,7 +1620,11 @@ class DeterministicOperationResolver implements OperationResolver {
 
     // The executor writes the one `[umlive][executor]` line for this call.
     final result = await executor.execute(operation: operation, body: body);
-    final evidence = OperationEvidence.fromResult(result);
+    // Same provenance as the read path (`T23`).
+    final evidence = OperationEvidence.fromResult(
+      result,
+      openapiVersion: registry.openapiVersion,
+    );
 
     // A queued create is **not** a success and must never be reported as one:
     // the backend never received the `POST`, so the record does not exist yet.

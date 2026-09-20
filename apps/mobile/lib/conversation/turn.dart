@@ -41,9 +41,9 @@ enum TurnStatus {
 /// The evidence of one operation call, carried on the [AssistantTurn] it
 /// produced.
 ///
-/// Nothing renders this yet — that is `T23`'s technical mode (`FR-ME06`) — but
-/// the fields are captured now, at the only point they are ever known: the
-/// moment the executor returns.
+/// It was captured at the only point any of it is ever known — the moment the
+/// executor returns — and `T23`'s technical mode (`FR-ME06`) is the one surface
+/// that renders it.
 class OperationEvidence {
   const OperationEvidence({
     required this.operationKey,
@@ -51,18 +51,31 @@ class OperationEvidence {
     required this.method,
     this.statusCode,
     this.latencyMs,
+    this.openapiVersion,
   });
 
   /// Builds the evidence a turn carries from the executor's own result, so the
   /// two shapes never drift apart.
-  factory OperationEvidence.fromResult(OperationResult result) =>
-      OperationEvidence(
-        operationKey: result.operationKey,
-        resolvedPath: result.resolvedPath,
-        method: result.method,
-        statusCode: result.statusCode,
-        latencyMs: result.latencyMs,
-      );
+  ///
+  /// [openapiVersion] is the one fact the result cannot know and the app must
+  /// never invent, so the caller hands it in: the resolver reads it off the
+  /// registry it resolved the operation against ([ApiRegistry.openapiVersion],
+  /// the `openapi` field the document itself declares) and passes it here
+  /// (`T23`). Passing it in rather than looking it up later is deliberate: the
+  /// registry in force at the moment of the call is the only one that can
+  /// honestly explain that call, and a later lookup could read a document the
+  /// operation never came from.
+  factory OperationEvidence.fromResult(
+    OperationResult result, {
+    String? openapiVersion,
+  }) => OperationEvidence(
+    operationKey: result.operationKey,
+    resolvedPath: result.resolvedPath,
+    method: result.method,
+    statusCode: result.statusCode,
+    latencyMs: result.latencyMs,
+    openapiVersion: openapiVersion,
+  );
 
   /// [ApiOperation.key] of the operation that ran — never a route or verb
   /// literal, always whatever the registry discovered (`FR-MA03`).
@@ -80,7 +93,23 @@ class OperationEvidence {
   final int? statusCode;
 
   /// Wall time of the call, in milliseconds, or null when it never ran.
+  ///
+  /// A call that ran and then failed without an answer does carry a number
+  /// here — the executor measured how long the failed attempt took, and this is
+  /// a faithful projection of that result. `T23`'s block is what decides not to
+  /// present that number as a latency; see `technical_details.dart`.
   final int? latencyMs;
+
+  /// The `openapi` field of the document this operation's registry was derived
+  /// from ([ApiRegistry.openapiVersion]), e.g. `3.1.0`, or null when the
+  /// document declared none.
+  ///
+  /// This is what makes the model-driven claim checkable **per turn** (`T23`,
+  /// `FR-ME06`): the technical detail under a turn can name the version of the
+  /// document the operation actually came from instead of asserting that the
+  /// app discovered it. It is the **document's** own version, read from the
+  /// `openapi` field at parse time, and never a constant this app believes.
+  final String? openapiVersion;
 }
 
 /// What a read returned, in the shape a surface renders (`T21`).

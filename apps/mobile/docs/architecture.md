@@ -1158,3 +1158,32 @@ target is never inferred.
   publishes.
 - **Four keys were deleted** because the mapper replaced them at their only call
   sites, so no copy is left describing a sentence nothing can say.
+
+## 28. Technical mode: the claim, made checkable per turn (T23)
+
+- **Off by default, turned on only by the operator** (`FR-ME06`, UX spec: *Hidden
+  behind an explicit toggle*). `TechnicalMode` holds one boolean, has no setter —
+  nothing in the app can enable it by itself — and lives in memory for this release,
+  which satisfies the UX spec's "persistent across turns" without pretending to be a
+  setting that survives a launch. Measured: off by default, on after the switch, back
+  off after it, and `false` again after a cold start.
+- **The block is the machinery, and only the machinery.** Under an assistant turn
+  that carries evidence, the operator sees *Método*, *Ruta resuelta*, *Estado* and
+  *Latencia*, plus *"Descubierto desde OpenAPI 3.1.0."* The path shown is the
+  **resolved** one — `/api/pago`, never the `{id}` template — because the template is
+  what the app knew and the resolved path is what it did. Measured on the device:
+  `GET`, `/api/pago`, `200`, `65 ms`, and the version string taken from the document
+  itself rather than believed by the app (`[registry] kind=document openapi=3.1.0`).
+- **A queued write says nothing was sent.** *Estado* reads *No enviado* and
+  *Latencia* reads *Sin medir* — never a number. That is not cosmetic: a queued
+  result carries the **failed attempt's** latency (a timeout's ~30 000 ms), and
+  printing it beside "queued" would read as a backend that answered slowly. The row
+  keys off the status, not off the presence of a measurement.
+- **It shows no secrets.** No bearer token, no request body, no response body — the
+  token is logged and rendered as present or absent and never by value, and the
+  bodies belong to `T21`'s cards when they are legitimate answers. Measured: no
+  `authorization`, no `bearer`, no body text anywhere in the technical block.
+- **What it is for.** It is how the model-driven claim gets defended in front of an
+  evaluator: the operator says a sentence, and the screen shows the verb, the path,
+  the status, the latency and the document the operation was derived from — evidence
+  rather than an assertion.

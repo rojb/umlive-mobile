@@ -9,6 +9,7 @@ import '../data/profile_repository.dart';
 import '../data/read_cache_repository.dart';
 import '../data/registry_repository.dart';
 import '../presentation/connection_controller.dart';
+import '../presentation/technical_mode.dart';
 import '../voice/voice_controller.dart';
 
 /// Composition root: every long-lived object the app shares, built once.
@@ -26,6 +27,7 @@ class AppServices {
     required this.connection,
     required this.voice,
     required this.conversation,
+    required this.technicalMode,
   });
 
   final AppDatabase database;
@@ -54,6 +56,12 @@ class AppServices {
   /// deterministic resolver (`T12`'s read path, extended by `T13`) as the one
   /// that turns an utterance into an operation call.
   final ConversationController conversation;
+
+  /// The operator's request to see the machinery (`T23`, `FR-ME06`). Built here
+  /// like every other shared object, so the Settings switch that flips it and
+  /// the conversation surface that reads it are talking about the same one
+  /// mode — toggling it on Settings re-renders the turns already on screen.
+  final TechnicalMode technicalMode;
 
   /// Opens storage, wires the repositories and restores the stored profile.
   ///
@@ -86,6 +94,9 @@ class AppServices {
       'reachability': connection.reachability.name,
     });
     final voice = VoiceController();
+    // Off by default and in memory only; the class documents why that is a
+    // decision and not an omission (`T23`).
+    final technicalMode = TechnicalMode();
     return AppServices(
       database: database,
       profiles: profiles,
@@ -94,6 +105,7 @@ class AppServices {
       readCache: readCache,
       connection: connection,
       voice: voice,
+      technicalMode: technicalMode,
       conversation: ConversationController(
         connection,
         // The drain (`T16`) sends from the same queue the outbox decorator
