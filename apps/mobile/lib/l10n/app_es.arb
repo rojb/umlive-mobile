@@ -211,6 +211,16 @@
     "description": "Sentence of the missing-description state. FR-MA06: it names the cause and never offers a guessed route."
   },
 
+  "reachabilityNotAnApiDescriptionLabel": "Sin descripción válida",
+  "@reachabilityNotAnApiDescriptionLabel": {
+    "description": "Reachability state: 2xx on the description path whose body is not a parseable OpenAPI document (FR-MA06). It has to fit the app-bar pill."
+  },
+
+  "reachabilityNotAnApiDescriptionSentence": "El backend respondió, pero el contenido de la ruta de la descripción no es un documento OpenAPI; por ejemplo, una página HTML. Sin esa descripción no se pueden descubrir las operaciones del backend.",
+  "@reachabilityNotAnApiDescriptionSentence": {
+    "description": "Sentence of the not-an-API-description state. FR-MA06: it names what the body actually is instead of reporting a status code, and it never falls back to guessing routes."
+  },
+
   "reachabilityUnhealthyLabel": "Backend con error",
   "@reachabilityUnhealthyLabel": {
     "description": "Reachability state: any non-2xx other than 404 on the description path."
@@ -279,6 +289,56 @@
   "connectSuccessNoOperations": "El backend respondió, pero no publica ninguna operación.",
   "@connectSuccessNoOperations": {
     "description": "Connection Success state for a description with no paths. UX spec Pass 6: an empty API is not an error and it gets its own sentence."
+  },
+
+  "connectSuccessCachedNote": "Entidades recordadas de la última conexión.",
+  "@connectSuccessCachedNote": {
+    "description": "Marks the entities as remembered rather than live when the registry in use is the cached one (FR-MA04). The UX spec's Connection table asks for exactly this distinction in its 'Offline with cache' row."
+  },
+
+  "connectRetry": "Reintentar",
+  "@connectRetry": {
+    "description": "Retry action of the Connection Partial state: it probes the same stored address again, without touching the address."
+  },
+
+  "registryChangedHeadline": "El registro cambió desde la última conexión",
+  "@registryChangedHeadline": {
+    "description": "Headline of the FR-MA07 change report. The UX spec keeps this element hidden until it happens and Primary when it does."
+  },
+
+  "registryChangedAdded": "Operaciones nuevas: {count}",
+  "@registryChangedAdded": {
+    "description": "Count of operations the new description declares and the previous one did not. The count phrasing avoids Spanish number agreement with a noun that would need singular and plural forms.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "registryChangedRemoved": "Operaciones que ya no están: {count}",
+  "@registryChangedRemoved": {
+    "description": "Count of operations the previous description declared and the new one does not.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "registryChangedSame": "El documento cambió, pero las operaciones son las mismas.",
+  "@registryChangedSame": {
+    "description": "Change report when the document hash changed but the callable operations are identical. It is said instead of showing an empty report, which would read as a failure."
+  },
+
+  "assistantCannotWork": "Todavía no hay nada con lo que trabajar. No se ha completado ninguna conexión y no hay datos guardados de una conexión anterior.",
+  "@assistantCannotWork": {
+    "description": "Pass 6, first launch offline with no cached registry: it has to be said plainly and no conversation surface may be shown, because one that can only fail is worse than none. It also covers a stored backend that cannot be reached with nothing remembered."
+  },
+
+  "assistantOpenConnect": "Conectar con un backend",
+  "@assistantOpenConnect": {
+    "description": "Action of the cannot-work state, so the plain statement is not a dead end. It opens the Connect screen."
   },
 
   "connectStart": "Empezar a hablar",

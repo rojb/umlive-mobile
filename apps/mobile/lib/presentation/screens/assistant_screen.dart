@@ -79,10 +79,23 @@ class AssistantScreen extends StatelessWidget {
                   child: ListenableBuilder(
                     listenable: connection,
                     builder: (context, _) {
-                      // T3: the greeting states the discovered scope in domain
-                      // terms (`FR-MC07`); before a registry exists it falls
-                      // back to the intent-only sentence from T1.
+                      // T3/T4: the greeting states the discovered scope in
+                      // domain terms (`FR-MC07`). The registry it reads is the
+                      // cached one when the backend did not answer (`FR-MA04`).
                       final registry = connection.apiRegistry;
+                      if (registry == null && !connection.isProbing) {
+                        // Pass 6, first launch offline with no cached registry:
+                        // say plainly that it has never connected and cannot
+                        // work yet. A conversation surface that can only fail
+                        // is worse than none, so none is drawn.
+                        return _CannotWork(
+                          text: l10n.assistantCannotWork,
+                          actionLabel: l10n.assistantOpenConnect,
+                          onAction: () => Navigator.of(
+                            context,
+                          ).pushNamed(AppRoutes.connect),
+                        );
+                      }
                       final greeting = registry == null
                           ? l10n.assistantGreeting
                           : scopeGreeting(l10n, registry);
@@ -96,21 +109,35 @@ class AssistantScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),
-                Semantics(
-                  label: l10n.captureOrbSemantics,
-                  child: Column(
-                    children: [
-                      // Amplitude 0, microphone closed: static and dim until T8
-                      // binds the control to the real input level.
-                      const GlowOrb(),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        l10n.captureUnavailableCaption,
-                        textAlign: TextAlign.center,
-                        style: textTheme.bodySmall,
+                // A description that parsed but declares no operation is workable
+                // for nothing: the greeting says so and the capture control stays
+                // out of the way, instead of presenting a surface that can only
+                // fail (Pass 6).
+                ListenableBuilder(
+                  listenable: connection,
+                  builder: (context, _) {
+                    // No registry, or one that declares no operation: there is
+                    // nothing to capture for, so the control is not drawn.
+                    if (!connection.hasWorkableRegistry) {
+                      return const SizedBox.shrink();
+                    }
+                    return Semantics(
+                      label: l10n.captureOrbSemantics,
+                      child: Column(
+                        children: [
+                          // Amplitude 0, microphone closed: static and dim until
+                          // T8 binds the control to the real input level.
+                          const GlowOrb(),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            l10n.captureUnavailableCaption,
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodySmall,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
                 const SizedBox(height: AppSpacing.xl),
               ],
@@ -141,6 +168,53 @@ class _AssistantTurn extends StatelessWidget {
         borderRadius: AppRadii.cardSmallAll,
       ),
       child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+    );
+  }
+}
+
+/// Pass 6, flow integrity: the app states plainly that it cannot work yet, and
+/// offers the one action that changes that. It draws no conversation surface,
+/// because a control that can only fail is worse than no control.
+class _CannotWork extends StatelessWidget {
+  const _CannotWork({
+    required this.text,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String text;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppRadii.cardSmallAll,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.cloud_off_outlined, color: AppColors.textMuted),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(text, style: textTheme.bodyMedium),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          FilledButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
     );
   }
 }

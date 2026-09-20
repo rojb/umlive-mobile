@@ -8,6 +8,7 @@ class RegistryParseResult {
   const RegistryParseResult({
     required this.registry,
     required this.documentJson,
+    required this.isOpenApiDocument,
     required this.elapsedMs,
   });
 
@@ -16,6 +17,17 @@ class RegistryParseResult {
   /// The document as text, for `registry.document_json` (T4). Empty when the
   /// bytes were not valid UTF-8.
   final String documentJson;
+
+  /// True when the bytes decoded to a JSON object that declares an OpenAPI 3.x
+  /// version — the least a body has to be for this parser to trust it as the
+  /// backend's own description (`FR-MA06`).
+  ///
+  /// A 2xx body that fails this test — an HTML page served at the description
+  /// path, a JSON error envelope, a document for another OpenAPI major — is an
+  /// explicit discovery failure with its own sentence, never a registry and
+  /// never a reason to guess routes from entity names. `T5` consumes it; `T4`
+  /// uses it to keep such a body from overwriting a good cached registry.
+  final bool isOpenApiDocument;
 
   /// Wall time of the parse, for the `[umlive][registry]` summary line.
   final int elapsedMs;
@@ -140,7 +152,14 @@ abstract final class RegistryParser {
     final entities = _buildEntities(operations, diagnostics);
     stopwatch.stop();
 
+    // The document is trusted only when it is a JSON object that declares its
+    // own OpenAPI version. Anything else — HTML, a stray JSON payload, a 4.x
+    // document — is reported as "not a description" rather than half-read.
+    final isOpenApiDocument =
+        root != null && version != null && version.startsWith('3.');
+
     return RegistryParseResult(
+      isOpenApiDocument: isOpenApiDocument,
       registry: ApiRegistry(
         openapiVersion: version,
         documentHash: hash,

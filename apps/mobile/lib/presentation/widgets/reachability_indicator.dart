@@ -163,6 +163,13 @@ class ReachabilityView {
           sentence: l10n.reachabilityMissingDescriptionSentence,
           color: AppColors.danger,
         );
+      case ReachabilityState.notAnApiDescription:
+        return ReachabilityView(
+          icon: Icons.article_outlined,
+          label: l10n.reachabilityNotAnApiDescriptionLabel,
+          sentence: l10n.reachabilityNotAnApiDescriptionSentence,
+          color: AppColors.danger,
+        );
       case ReachabilityState.reachableButUnhealthy:
         final status = probe?.statusCode;
         return ReachabilityView(

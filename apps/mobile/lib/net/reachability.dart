@@ -19,11 +19,17 @@ enum ReachabilityState {
   /// description (`FR-MA06`). Routes are never guessed to work around it.
   missingDescription,
 
+  /// 2xx from the description path, but the body is not a parseable OpenAPI
+  /// document — an HTML page published at that path, for example. The backend
+  /// is alive and says it has a description; what it serves is not one
+  /// (`FR-MA06`). Nothing was derived from it and no route is guessed.
+  notAnApiDescription,
+
   /// Answered with any other non-2xx status: reachable, not usable right now.
   reachableButUnhealthy,
 
   /// The probe failed, but a registry row for this profile exists, so what the
-  /// backend described earlier is still known (T4 fills that row).
+  /// backend described earlier is still known (`FR-MA04`, T4 writes that row).
   offlineWithCache,
 
   /// The probe failed and nothing is known about this backend.

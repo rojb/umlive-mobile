@@ -169,6 +169,18 @@ In this order, every times:
    and confirming `Network is unreachable` *before* the test. Airplane mode on
    this handset leaves Wi-Fi up, so airplane mode alone proves nothing.
 
+**The USB mapping is not isolation.** `adb reverse tcp:8080 tcp:8080` makes the
+host's backend answer at `127.0.0.1:8080` *on the handset itself*, over the USB
+cable, so turning every radio off does not break it: the app stays connected and
+an offline test run that way proves the opposite of what it claims. A genuine
+offline test therefore has to `adb reverse --remove tcp:8080` **and** disable
+Wi-Fi and mobile data, and it must see `ping` answer `Network is unreachable`
+from the device **before** the result is believed. Airplane mode is not
+isolation on this handset, and neither is the radio switch on its own while the
+reverse mapping is up. The same care applies in reverse when restoring: re-enable
+Wi-Fi and data, re-run `adb reverse tcp:8080 tcp:8080`, and confirm the mapping
+with `adb reverse --list` before claiming the online state again.
+
 `adb` lives at `C:/Users/lTemp/AppData/Local/Android/Sdk/platform-tools/adb.exe`.
 Git Bash needs `MSYS_NO_PATHCONV=1` for device-side paths (`/sdcard/...`), which
 then requires a `C:/…` Windows path for the local side of the same command.
@@ -265,3 +277,42 @@ owns the document hash. T4 persists, T5 reports failure, the resolvers read.
   line per entity, one `kind=document` line with the SHA-256, and the
   `kind=summary` line — the KR2 evidence. `servers[0].url` is derived from the
   request host, so it is never used as a base URL.
+
+## 12. The registry cache and explicit discovery failure (T4, T5)
+
+- **One row per profile, written on every successful discovery.**
+  `registry.document_hash`, `document_json` (the raw document),
+  `derived_json` (`ApiRegistry.toJson`, decoded by `ApiRegistry.fromJson`),
+  `openapi_version` and `fetched_at`. The model round-trips through JSON, and
+  the cache is the authority when the backend does not answer (`FR-MA04`).
+- **The cache is loaded on cold start, before the first probe.**
+  `ConnectionController.loadStoredProfile()` reads the row, so the first frame
+  already has a registry to work with and an offline launch lists the same
+  entities as the last connect. It logs `kind=cache result=loaded` plus one
+  `kind=entity source=cache` line per entity.
+- **A document the parser did not accept never overwrites a good row.**
+  Persistence is reached only from an accepted OpenAPI 3.x description
+  (`RegistryParseResult.isOpenApiDocument`), so an HTML page, a stray JSON body
+  or a truncated read leaves the stored registry untouched. This rule is stated
+  in the controller and in the repository, because both are places a later task
+  might otherwise relax it.
+- **Change detection is by document hash** (`FR-MA07`). An identical hash
+  rewrites nothing and shows nothing. A different hash re-derives, persists and
+  reports the operations added and removed, as
+  `[umlive][registry] kind=change added=… removed=…` and on the Connect screen —
+  hidden until it happens, Primary when it does. Identity is the operation key
+  (`"<METHOD> <path>"`), never `operationId`, for the same reason the registry
+  keys on it.
+- **Changing the address drops the cached registry.** The `profile` row is
+  reused across an address change, so a row left behind would make the app claim
+  `offlineWithCache` about a backend it has never reached.
+- **Discovery failure is explicit and never guesses** (`FR-MA06`). The
+  reachability enum carries the state per cause: `missingDescription` (404 — the
+  backend was generated without `springdoc-openapi`), `notAnApiDescription`
+  (2xx whose body is not an OpenAPI document, e.g. HTML at that path), and
+  `offlineWithCache`/`unreachable` for no answer at all. The Connect screen's
+  *Partial* state names the cause and offers retry or change address; an empty
+  description (no operations) says the backend exposes no operations and offers
+  no way into a conversation that could only fail. There is no code path that
+  synthesises a route from an entity name: every path, verb and field the app
+  uses comes from the registry, which comes from the document.
