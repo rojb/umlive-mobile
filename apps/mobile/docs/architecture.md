@@ -627,3 +627,40 @@ language, and only then `POST`. `T13` ships the create half; the destructive hal
   neutral confirmation answered with *"La operación sigue esperando
   confirmación."*, a cancel that wrote nothing, and *borrá el cliente 5* refused
   with no executor line at all.
+
+## 17. The destructive conversation (T13b)
+
+`FR-MC05`: a delete restates the identity of its target and waits. It is the
+smallest of the three conversations and the one with the strictest rule — a
+target is never inferred.
+
+- **The draft became a sealed hierarchy.** `PendingWrite` is the write in flight
+  and now has two shapes: `PendingCreate` (fields captured one at a time, with a
+  phase) and `PendingDelete` (one `recordId`, no phase — a delete is never
+  assembled, it is identified and then confirmed). The band switches on the type,
+  so a third write would not compile until it was handled; the controller's
+  `advanced` rule needed no change, because each shape implements `==`.
+- **Write verbs are split by what the app can honour.** `deleteTriggers` opens
+  the destructive conversation; `updateTriggers` is refused with the entity named
+  (`reason=write_not_implemented`), because an update needs the record read first
+  and is its own task. Neither may fall through to the read path.
+- **The target is the first numeric token, and nothing else** — `FR-MC06`'s
+  reference resolution by name stays a Should Have and is not guessed at. No
+  identifier, or a delete operation that declares no path parameter, is refused
+  naming the entity (`reason=delete_no_target` / `no_delete_parameter`); a
+  missing delete role is `no_delete_operation`.
+- **Nothing is sent before the affirmative, and the read-back is the band's:**
+  *"Se va a eliminar el registro 7 de cliente."*, with the same two controls a
+  create uses. The `DELETE` goes out with only the declared path parameter bound
+  and **no body**; a 2xx is the only thing that says the record is gone, and a
+  failure says it is not known to be gone.
+- **The record id never enters the log from the resolver.** It reaches the log
+  only through the executor's own `path=/api/cliente/7` line, a protocol-level
+  fact the read path's `get` already produces.
+- **Verified on `TFY-LX3`**: the read-back with no executor line and both records
+  intact, the confirm destroying exactly the named record (`DELETE … status=204`)
+  with the other untouched, a neutral answer (*"quizás"*) answered with *"La
+  operación sigue esperando confirmación."* while the read-back still stood, a
+  cancel that left the record in place, *"borrá los clientes"* refused with no
+  identifier at all, and *"modificá el cliente 7"* refused **without a `GET`** —
+  the exact failure this guard exists to prevent.

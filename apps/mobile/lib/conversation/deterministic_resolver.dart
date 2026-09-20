@@ -23,12 +23,16 @@
 /// storage or the connection: the only thing it can reach out with is the
 /// [OperationExecutor] it is handed.
 ///
-/// **The create path lives here too** (`T13`). A create utterance opens a draft
-/// and fills it one field at a time (`FR-MC02`), reads the complete record back
-/// and only then submits, on an affirmative (`FR-MC03`); nothing is executed on
-/// the turn that started it. Deletes and updates are **not** in this build: a
-/// mutation trigger is refused rather than answered with a read, and `T13b`
-/// replaces that refusal with the destructive conversation (`FR-MC05`).
+/// **The write paths live here too** (`T13`, `T13b`). A create utterance opens
+/// a draft and fills it one field at a time (`FR-MC02`), reads the complete
+/// record back and only then submits, on an affirmative (`FR-MC03`); nothing is
+/// executed on the turn that started it. A delete names one target, restates its
+/// identity and only then issues the `DELETE`, on an affirmative (`FR-MC05`),
+/// and its target is never inferred from an ambiguous utterance — resolving one
+/// by name (`FR-MC06`) is a Should Have this build does not implement. Updates
+/// are **not** in this build either: an update verb is refused rather than
+/// answered by the read path, because an update needs the record read first and
+/// is its own task.
 library;
 
 import '../core/log.dart';
@@ -43,7 +47,8 @@ import 'pending_write.dart';
 import 'spanish_language.dart';
 import 'turn.dart';
 
-/// The shipped [OperationResolver] (`T12`).
+/// The shipped [OperationResolver]: the read path of `T12` and the write paths
+/// of `T13` and `T13b`, in one class.
 ///
 /// Stateless by construction: every call gets its utterance, registry,
 /// executor and localizations as parameters, so there is nothing to reset
@@ -55,16 +60,31 @@ class DeterministicOperationResolver implements OperationResolver {
   ///
   /// `read` means the utterance was resolved into a read operation — whether
   /// the call then succeeded or not, because the `reason` on the same line
-  /// says which. `write` means it was resolved into the create conversation of
-  /// `T13`. `not_understood` means nothing was resolved and no call was made.
+  /// says which. `write` means it was resolved into a write conversation — the
+  /// create of `T13` or the delete of `T13b` — and the `intent` on the same
+  /// line says which of the two. `not_understood` means nothing was resolved
+  /// and no call was made.
   static const String _resultRead = 'read';
   static const String _resultWrite = 'write';
   static const String _resultNotUnderstood = 'not_understood';
 
-  /// The `intent` the write path logs: the draft is a create, whether the turn
+  /// The `intent` the create path logs: the draft is a create, whether the turn
   /// starts it, fills a field or confirms it. The `phase` on the same line says
   /// which part of that conversation the turn is.
   static const String _intentCreate = 'create';
+
+  /// The `intent` the delete path logs (`T13b`): the turn names one record and
+  /// confirms it (`FR-MC05`). A delete carries no [WritePhase] of its own,
+  /// because nothing about it is collected, so its turns log the constant
+  /// below as their phase instead.
+  static const String _intentDelete = 'delete';
+
+  /// The `phase` every delete turn logs. A delete carries no
+  /// [WritePhase] — there is nothing to collect — so this is a constant and not
+  /// a draft field; it is `confirming` because identified-and-confirmed is the
+  /// only stage a delete is ever in, which keeps the log column comparable with
+  /// a create's.
+  static const String _phaseConfirming = 'confirming';
 
   @override
   Future<ResolverOutcome> resolve({
@@ -151,13 +171,27 @@ class DeterministicOperationResolver implements OperationResolver {
     final entity = match.entity;
     final name = lowerFirst(entity.name);
 
-    // A delete or an update is a write this build does not implement yet, and
-    // it must not fall through to the read path: today "borrá el cliente 1"
-    // would find the `get` role and *read* the record it was asked to
-    // destroy, which is a lie about what the app did. It names what it did not
-    // understand instead. `T13b` replaces this refusal with the destructive
-    // conversation (`FR-MC05`).
-    if (tokens.any(mutationTriggers.contains)) {
+    // A delete is the destructive conversation (`FR-MC05`): it names its one
+    // target, reads the identity back and only then issues the `DELETE`. It is
+    // checked before a create so a delete verb can never open a draft instead,
+    // and before anything reaches the read path.
+    if (tokens.any(deleteTriggers.contains)) {
+      return _beginDelete(
+        utteranceLength: length,
+        tokens: tokens,
+        entity: entity,
+        name: name,
+        registry: registry,
+        l10n: l10n,
+      );
+    }
+
+    // An update is a write this build does not implement, and it must not fall
+    // through to the read path: today "modificá el cliente 1" would find the
+    // `get` role and *read* the record it was asked to change, which is a lie
+    // about what the app did. It names what it did not understand instead. An
+    // update needs the record read first, so it is its own task.
+    if (tokens.any(updateTriggers.contains)) {
       return _finish(
         utteranceLength: length,
         result: _resultNotUnderstood,
@@ -300,7 +334,11 @@ class DeterministicOperationResolver implements OperationResolver {
   /// transcription is the operator's own words and does not belong in a
   /// device log. The write path keeps the same rule for what it captures:
   /// only [valueLength] is loggable, never the value, and [field] names the
-  /// field being asked for without carrying what was put into it.
+  /// field being asked for without carrying what was put into it. The delete
+  /// path keeps it for its one target too: the identifier named by the
+  /// operator is never a field of this line, and it reaches the log only
+  /// through the executor's own `path=` line, which is a protocol-level fact —
+  /// exactly what the read path's `get` already does with the id it binds.
   ResolverOutcome _finish({
     required int utteranceLength,
     required String result,
@@ -383,7 +421,7 @@ class DeterministicOperationResolver implements OperationResolver {
       );
     }
 
-    var draft = PendingWrite(
+    var draft = PendingCreate(
       entityName: name,
       operationKey: operation.key,
       requiredFields: requiredFields,
@@ -443,6 +481,98 @@ class DeterministicOperationResolver implements OperationResolver {
     );
   }
 
+  /// Opens the destructive conversation for [entity] and returns the turn that
+  /// reads its target's identity back (`FR-MC05`).
+  ///
+  /// The target is the **first numeric token** and nothing else. A delete is
+  /// never inferred: with no numeric token there is no target, and the turn says
+  /// so instead of guessing one. Resolving a target by name is `FR-MC06`, a
+  /// Should Have this build does not implement. Nothing is executed here — the
+  /// `DELETE` waits for an affirmative (`FR-MC03`, `FR-MC05`) — and the
+  /// identifier is never logged, the same discipline the read path applies to
+  /// the utterance text: it reaches the log only through the executor's own
+  /// `path=` line.
+  ResolverOutcome _beginDelete({
+    required int utteranceLength,
+    required List<String> tokens,
+    required EntityModel entity,
+    required String name,
+    required ApiRegistry registry,
+    required AppLocalizations l10n,
+  }) {
+    // The operation comes from the role the entity actually publishes, never
+    // from an assembled route (`FR-MA03`). A missing role and a role the
+    // registry does not carry are the same kind of problem: there is nothing to
+    // delete through.
+    final roleKey = entity.roleKeys[EntityRole.delete];
+    final operation = roleKey == null ? null : registry.operation(roleKey);
+    if (operation == null) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultNotUnderstood,
+        replyText: l10n.conversationDeleteNoOperation(name),
+        status: TurnStatus.failed,
+        intent: _intentDelete,
+        entity: name,
+        reason: 'no_delete_operation',
+      );
+    }
+
+    String? recordId;
+    for (final token in tokens) {
+      if (_isNumeric(token)) {
+        recordId = token;
+        break;
+      }
+    }
+    if (recordId == null) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultNotUnderstood,
+        replyText: l10n.conversationDeleteNoTarget(name),
+        status: TurnStatus.failed,
+        intent: _intentDelete,
+        entity: name,
+        reason: 'delete_no_target',
+      );
+    }
+
+    // A delete operation that declares no path parameter cannot address a
+    // single record, so there is nothing honest to call.
+    if (operation.pathParameterNames.isEmpty) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultNotUnderstood,
+        replyText: l10n.conversationDeleteNoTarget(name),
+        status: TurnStatus.failed,
+        intent: _intentDelete,
+        entity: name,
+        reason: 'no_delete_parameter',
+      );
+    }
+
+    final draft = PendingDelete(
+      entityName: name,
+      operationKey: operation.key,
+      recordId: recordId,
+    );
+
+    // The read-back restates the identity of the target and nothing is sent on
+    // this turn. `FR-MC05`: the operator has to accept it before the record is
+    // destroyed.
+    return _finish(
+      utteranceLength: utteranceLength,
+      result: _resultWrite,
+      replyText: l10n.conversationDeleteReadBack(recordId, name),
+      status: TurnStatus.resolved,
+      intent: _intentDelete,
+      entity: name,
+      operation: operation.key,
+      phase: _phaseConfirming,
+      pending: draft,
+    );
+  }
+
   /// The operator's own words for the first required field, when the utterance
   /// carries them in the §5.1 shape.
   ///
@@ -490,6 +620,12 @@ class DeterministicOperationResolver implements OperationResolver {
 
   /// Continues the write [pending] describes: the utterance is an answer to the
   /// conversation, never a new command.
+  ///
+  /// The sealed type is switched on rather than its members probed, so a third
+  /// write would not compile until it were handled — the same discipline
+  /// `turn.dart` applies to turns. Both writes read an affirmative and a
+  /// negative the same way ([_isAffirmative], [_isNegative]) and settle in the
+  /// same three shapes; only a create is assembled field by field.
   Future<ResolverOutcome> _continueWrite({
     required String utterance,
     required PendingWrite pending,
@@ -499,112 +635,303 @@ class DeterministicOperationResolver implements OperationResolver {
   }) async {
     final tokens = utteranceTokens(utterance);
     final length = utterance.length;
-    final entityName = pending.entityName;
-    final phase = pending.phase.name;
 
-    if (pending.phase == WritePhase.confirming) {
-      if (tokens.any(affirmativeAnswers.contains)) {
-        return _submitWrite(
+    switch (pending) {
+      // A delete was identified when it opened, so there is nothing to collect
+      // here: the utterance is an affirmative, a negative or neither
+      // (`FR-MC05`).
+      case PendingDelete delete:
+        return _continueDelete(
           utteranceLength: length,
-          pending: pending,
+          tokens: tokens,
+          pending: delete,
           registry: registry,
           executor: executor,
           l10n: l10n,
         );
-      }
-      if (tokens.any(negativeAnswers.contains)) {
-        // A cancel is neither a failure nor a success: nothing was sent, and
-        // the draft is dropped because there is nothing left to send.
+
+      case PendingCreate create:
+        final entityName = create.entityName;
+        final phase = create.phase.name;
+
+        if (create.phase == WritePhase.confirming) {
+          if (_isAffirmative(tokens)) {
+            return _submitWrite(
+              utteranceLength: length,
+              pending: create,
+              registry: registry,
+              executor: executor,
+              l10n: l10n,
+            );
+          }
+          if (_isNegative(tokens)) {
+            // A cancel is neither a failure nor a success: nothing was sent,
+            // and the draft is dropped because there is nothing left to send.
+            return _finish(
+              utteranceLength: length,
+              result: _resultWrite,
+              replyText: l10n.conversationWriteCancelled,
+              status: TurnStatus.resolved,
+              intent: _intentCreate,
+              entity: entityName,
+              operation: create.operationKey,
+              phase: phase,
+              pending: null,
+            );
+          }
+          // Neither an affirmative nor a negative: the read-back stands and
+          // the draft is kept. The turn settled, so it is resolved and not
+          // failed.
+          return _finish(
+            utteranceLength: length,
+            result: _resultWrite,
+            replyText: l10n.conversationWriteAwaitingConfirmation,
+            status: TurnStatus.resolved,
+            intent: _intentCreate,
+            entity: entityName,
+            operation: create.operationKey,
+            phase: phase,
+            pending: create,
+          );
+        }
+
+        // Collecting: the whole utterance is the answer to the one field being
+        // asked for. `PendingCreate` sets `asking` for every collecting draft,
+        // so the phase and the field cannot disagree.
+        final field = create.asking!;
+        final converted = convertFieldValue(field, utterance);
+        if (converted is! FieldValueOk) {
+          // One clear sentence, not two: the value was not accepted and the
+          // same field is asked for again. The draft is untouched.
+          return _finish(
+            utteranceLength: length,
+            result: _resultWrite,
+            replyText: l10n.conversationWriteFieldInvalid(field.name),
+            status: TurnStatus.failed,
+            intent: _intentCreate,
+            entity: entityName,
+            operation: create.operationKey,
+            phase: phase,
+            field: field.name,
+            valueLength: utterance.trim().length,
+            reason: 'invalid_field',
+            pending: create,
+          );
+        }
+
+        final rest = create.missing
+            .where((candidate) => candidate.name != field.name)
+            .toList();
+        final nextDraft = create.withValue(
+          field.name,
+          utterance.trim(),
+          nextAsking: rest.isEmpty ? null : rest.first,
+        );
+
+        if (nextDraft.isComplete) {
+          // The record is complete. It is read back in domain language and
+          // waits (`FR-MC03`); nothing is submitted on this turn.
+          return _finish(
+            utteranceLength: length,
+            result: _resultWrite,
+            replyText: l10n.conversationWriteReadBackCreate(entityName),
+            status: TurnStatus.resolved,
+            intent: _intentCreate,
+            entity: entityName,
+            operation: create.operationKey,
+            phase: nextDraft.phase.name,
+            valueLength: utterance.trim().length,
+            pending: nextDraft,
+          );
+        }
+
+        final next = nextDraft.missing.first;
         return _finish(
           utteranceLength: length,
           result: _resultWrite,
-          replyText: l10n.conversationWriteCancelled,
+          replyText: l10n.conversationWriteAskField(next.name),
           status: TurnStatus.resolved,
           intent: _intentCreate,
           entity: entityName,
-          operation: pending.operationKey,
-          phase: phase,
-          pending: null,
+          operation: create.operationKey,
+          phase: nextDraft.phase.name,
+          field: next.name,
+          valueLength: utterance.trim().length,
+          pending: nextDraft,
         );
-      }
-      // Neither an affirmative nor a negative: the read-back stands and the
-      // draft is kept. The turn settled, so it is resolved and not failed.
-      return _finish(
-        utteranceLength: length,
-        result: _resultWrite,
-        replyText: l10n.conversationWriteAwaitingConfirmation,
-        status: TurnStatus.resolved,
-        intent: _intentCreate,
-        entity: entityName,
-        operation: pending.operationKey,
-        phase: phase,
+    }
+  }
+
+  /// Whether [tokens] carry an affirmative (`FR-MC03`).
+  ///
+  /// Shared by both writes: a create and a delete are confirmed the same way,
+  /// and the band's *Confirmar* control submits one of these words as an
+  /// ordinary utterance through the same resolution path as speech.
+  static bool _isAffirmative(List<String> tokens) =>
+      tokens.any(affirmativeAnswers.contains);
+
+  /// Whether [tokens] carry a negative (`FR-MC03`), shared by both writes the
+  /// same way [_isAffirmative] is.
+  static bool _isNegative(List<String> tokens) =>
+      tokens.any(negativeAnswers.contains);
+
+  /// Continues a delete waiting for its affirmative (`FR-MC05`).
+  ///
+  /// Three outcomes, the same shape as a create's confirmation: an affirmative
+  /// issues the `DELETE`, a negative reports that nothing was sent, and
+  /// anything else leaves the read-back standing.
+  Future<ResolverOutcome> _continueDelete({
+    required int utteranceLength,
+    required List<String> tokens,
+    required PendingDelete pending,
+    required ApiRegistry registry,
+    required OperationExecutor executor,
+    required AppLocalizations l10n,
+  }) async {
+    final entityName = pending.entityName;
+
+    if (_isAffirmative(tokens)) {
+      return _submitDelete(
+        utteranceLength: utteranceLength,
         pending: pending,
+        registry: registry,
+        executor: executor,
+        l10n: l10n,
       );
     }
 
-    // Collecting: the whole utterance is the answer to the one field being
-    // asked for. `PendingWrite` sets `asking` for every collecting draft, so
-    // the phase and the field cannot disagree.
-    final field = pending.asking!;
-    final converted = convertFieldValue(field, utterance);
-    if (converted is! FieldValueOk) {
-      // One clear sentence, not two: the value was not accepted and the same
-      // field is asked for again. The draft is untouched.
+    if (_isNegative(tokens)) {
+      // A cancelled delete sent nothing, so it is neither a failure nor a
+      // success and there is nothing left to send.
       return _finish(
-        utteranceLength: length,
+        utteranceLength: utteranceLength,
         result: _resultWrite,
-        replyText: l10n.conversationWriteFieldInvalid(field.name),
-        status: TurnStatus.failed,
-        intent: _intentCreate,
-        entity: entityName,
-        operation: pending.operationKey,
-        phase: phase,
-        field: field.name,
-        valueLength: utterance.trim().length,
-        reason: 'invalid_field',
-        pending: pending,
-      );
-    }
-
-    final rest = pending.missing
-        .where((candidate) => candidate.name != field.name)
-        .toList();
-    final nextDraft = pending.withValue(
-      field.name,
-      utterance.trim(),
-      nextAsking: rest.isEmpty ? null : rest.first,
-    );
-
-    if (nextDraft.isComplete) {
-      // The record is complete. It is read back in domain language and waits
-      // (`FR-MC03`); nothing is submitted on this turn.
-      return _finish(
-        utteranceLength: length,
-        result: _resultWrite,
-        replyText: l10n.conversationWriteReadBackCreate(entityName),
+        replyText: l10n.conversationWriteCancelled,
         status: TurnStatus.resolved,
-        intent: _intentCreate,
+        intent: _intentDelete,
         entity: entityName,
         operation: pending.operationKey,
-        phase: nextDraft.phase.name,
-        valueLength: utterance.trim().length,
-        pending: nextDraft,
+        phase: _phaseConfirming,
+        pending: null,
       );
     }
 
-    final next = nextDraft.missing.first;
+    // Neither an affirmative nor a negative: the read-back stands and the
+    // target is kept. The turn settled, so it is resolved and not failed.
     return _finish(
-      utteranceLength: length,
+      utteranceLength: utteranceLength,
       result: _resultWrite,
-      replyText: l10n.conversationWriteAskField(next.name),
+      replyText: l10n.conversationWriteAwaitingConfirmation,
       status: TurnStatus.resolved,
-      intent: _intentCreate,
+      intent: _intentDelete,
       entity: entityName,
       operation: pending.operationKey,
-      phase: nextDraft.phase.name,
-      field: next.name,
-      valueLength: utterance.trim().length,
-      pending: nextDraft,
+      phase: _phaseConfirming,
+      pending: pending,
+    );
+  }
+
+  /// Issues the `DELETE` for the one record [pending] names (`FR-MC05`).
+  ///
+  /// Reached only from an affirmative. The identifier is bound to the path
+  /// parameter the delete operation declares and there is **no body**: a delete
+  /// names one record and has nothing else to say. A 2xx is the only outcome
+  /// that says the record was deleted; anything else is the failure sentence
+  /// with its evidence, because a failed delete must never sound like a
+  /// success.
+  Future<ResolverOutcome> _submitDelete({
+    required int utteranceLength,
+    required PendingDelete pending,
+    required ApiRegistry registry,
+    required OperationExecutor executor,
+    required AppLocalizations l10n,
+  }) async {
+    final entityName = pending.entityName;
+
+    final operation = registry.operation(pending.operationKey);
+    if (operation == null) {
+      // The registry the delete was identified against no longer publishes the
+      // operation. Refuse honestly and keep the target rather than addressing
+      // the identifier somewhere else.
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultWrite,
+        replyText: l10n.conversationDeleteNoOperation(entityName),
+        status: TurnStatus.failed,
+        intent: _intentDelete,
+        entity: entityName,
+        operation: pending.operationKey,
+        phase: _phaseConfirming,
+        reason: 'no_delete_operation',
+        pending: pending,
+      );
+    }
+
+    if (operation.pathParameterNames.isEmpty) {
+      // The operation the target was identified against no longer declares the
+      // parameter that carries the identifier, so there is no honest way to
+      // address the record. Same condition `_beginDelete` refuses, re-read here
+      // because the registry may have been replaced since the read-back.
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultWrite,
+        replyText: l10n.conversationDeleteNoTarget(entityName),
+        status: TurnStatus.failed,
+        intent: _intentDelete,
+        entity: entityName,
+        operation: operation.key,
+        phase: _phaseConfirming,
+        reason: 'no_delete_parameter',
+        pending: pending,
+      );
+    }
+
+    // The identifier goes into the parameter the operation declares, exactly
+    // the way the read path's `get` binds it. No body: a delete has nothing
+    // else to say. The executor writes the one `[umlive][executor]` line for
+    // this call, and that `path=` line is the only place the identifier ever
+    // reaches the log.
+    final bound = <String, String>{
+      operation.pathParameterNames.first: pending.recordId,
+    };
+    final result = await executor.execute(
+      operation: operation,
+      pathParameters: bound,
+    );
+    final evidence = OperationEvidence.fromResult(result);
+
+    if (result.succeeded) {
+      return _finish(
+        utteranceLength: utteranceLength,
+        result: _resultWrite,
+        replyText: l10n.conversationDeleteDone(pending.recordId, entityName),
+        status: TurnStatus.resolved,
+        intent: _intentDelete,
+        entity: entityName,
+        operation: operation.key,
+        phase: _phaseConfirming,
+        evidence: evidence,
+        pending: null,
+      );
+    }
+
+    // The call ran and the backend did not answer correctly, so the record is
+    // not known to be gone. `T22` replaces this sentence with one derived from
+    // the status and the `errors` keys; the evidence travels with the turn
+    // either way, and the target is dropped because `T14`'s outbox is what will
+    // keep an unacknowledged write.
+    return _finish(
+      utteranceLength: utteranceLength,
+      result: _resultWrite,
+      replyText: l10n.conversationDeleteFailed(entityName),
+      status: TurnStatus.failed,
+      intent: _intentDelete,
+      entity: entityName,
+      operation: operation.key,
+      phase: _phaseConfirming,
+      reason: 'write_failed',
+      evidence: evidence,
+      pending: null,
     );
   }
 
@@ -616,7 +943,7 @@ class DeterministicOperationResolver implements OperationResolver {
   /// (`T14`'s outbox is what will keep it).
   Future<ResolverOutcome> _submitWrite({
     required int utteranceLength,
-    required PendingWrite pending,
+    required PendingCreate pending,
     required ApiRegistry registry,
     required OperationExecutor executor,
     required AppLocalizations l10n,

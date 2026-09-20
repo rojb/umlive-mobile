@@ -1,29 +1,29 @@
-/// The write the conversation is assembling, one field at a time (`T13`,
-/// `FR-MC02`), and the phase it is in.
+/// The writes the conversation is in the middle of (`T13`, `T13b`) and the
+/// phase a create is in.
 ///
-/// **Why the draft lives outside the resolver.** `DeterministicOperationResolver`
+/// **Why the write lives outside the resolver.** `DeterministicOperationResolver`
 /// is stateless by construction (`docs/architecture.md` §14): every call gets
 /// its utterance, the registry, the executor and the localizations, and there
-/// is nothing to reset between turns. A draft spans several utterances, so it
+/// is nothing to reset between turns. A write spans several utterances, so it
 /// cannot live there without making one resolution depend on the previous one.
 /// The conversation owns it instead — `ConversationController` holds the one
-/// draft in flight and hands it back to the resolver as a parameter — which is
+/// write in flight and hands it back to the resolver as a parameter — which is
 /// also what lets the next utterance be an answer to a question rather than a
 /// new command.
 ///
 /// **Why it is a value and not a mutable object.** The same rule every model in
-/// this folder follows: a draft is replaced by a new draft with one more field
-/// ([withValue]), never mutated in place. The resolver never mutates a draft,
-/// and the surface that renders one is handed an immutable snapshot. That is
-/// what keeps the turn list and the draft from disagreeing about what was
-/// captured.
+/// this folder follows: a write is replaced by a new write, never mutated in
+/// place — a create by [PendingCreate.withValue], which adds one field, and a
+/// delete by a new [PendingDelete]. The resolver never mutates a write, and the
+/// surface that renders one is handed an immutable snapshot. That is what keeps
+/// the turn list and the draft from disagreeing about what was captured.
 library;
 
 import 'package:flutter/foundation.dart';
 
 import '../openapi/registry.dart';
 
-/// Where a write in progress is.
+/// Where a create the conversation is assembling is.
 enum WritePhase {
   /// Still asking for required fields, one at a time, in schema order.
   collecting,
@@ -33,24 +33,34 @@ enum WritePhase {
   confirming,
 }
 
+/// A write the conversation is in the middle of (`FR-MC02`, `FR-MC03`,
+/// `FR-MC05`).
+///
+/// Sealed because the two writes this app performs are read back
+/// differently and confirmed identically: a create collects fields one at a
+/// time, a delete names one record and nothing else. The band switches on
+/// the type, so adding a third write would fail to compile until it is
+/// handled, the same discipline `turn.dart` applies to turns.
+sealed class PendingWrite {
+  const PendingWrite({required this.entityName, required this.operationKey});
+
+  /// The entity's recovered domain name in sentence register (`dirección`).
+  final String entityName;
+
+  /// [ApiOperation.key] of the operation the write will be sent to.
+  final String operationKey;
+}
+
 /// A write the conversation is assembling (`FR-MC02`).
-final class PendingWrite {
-  const PendingWrite({
-    required this.entityName,
-    required this.operationKey,
+final class PendingCreate extends PendingWrite {
+  const PendingCreate({
+    required super.entityName,
+    required super.operationKey,
     required this.requiredFields,
     required this.values,
     required this.asking,
     required this.phase,
   });
-
-  /// The entity's recovered domain name in sentence register (`dirección`,
-  /// recovered from `Dirección`), which is what the read-back and the question
-  /// name (`FR-MC07`).
-  final String entityName;
-
-  /// [ApiOperation.key] of the create operation the draft will be sent to.
-  final String operationKey;
 
   /// The create operation's required fields, in schema order: the list
   /// `FR-MC02` walks, one at a time.
@@ -82,12 +92,12 @@ final class PendingWrite {
   /// A copy, never a mutation: the resolver never mutates a draft in place, so
   /// a draft handed to a renderer and the draft handed back to the resolver can
   /// never be the same object.
-  PendingWrite withValue(
+  PendingCreate withValue(
     String name,
     String value, {
     WritePhase? phase,
     FieldDescriptor? nextAsking,
-  }) => PendingWrite(
+  }) => PendingCreate(
     entityName: entityName,
     operationKey: operationKey,
     requiredFields: requiredFields,
@@ -111,7 +121,7 @@ final class PendingWrite {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PendingWrite &&
+      other is PendingCreate &&
           other.entityName == entityName &&
           other.operationKey == operationKey &&
           other.phase == phase &&
@@ -133,4 +143,40 @@ final class PendingWrite {
       values.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),
   );
+}
+
+/// A delete waiting for its affirmative (`FR-MC05`).
+///
+/// It carries exactly one target: the identifier the operator named. There
+/// is no phase, because a delete is never assembled — it is identified and
+/// then confirmed — and nothing is asked for while it is open.
+final class PendingDelete extends PendingWrite {
+  const PendingDelete({
+    required super.entityName,
+    required super.operationKey,
+    required this.recordId,
+  });
+
+  /// The identifier of the record the read-back restates. `FR-MC05`: an
+  /// ambiguous utterance never becomes a delete, so this is never guessed.
+  final String recordId;
+
+  /// Value equality: a delete is a value, never an identity.
+  ///
+  /// The conversation compares the write it held before a resolve with the one
+  /// the resolver hands back, and that comparison is what separates an outcome
+  /// that moved the conversation forward from one that only repeated its
+  /// read-back (`T13b`). The runtime type is part of the comparison, so a
+  /// delete can never compare equal to a create.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PendingDelete &&
+          other.entityName == entityName &&
+          other.operationKey == operationKey &&
+          other.recordId == recordId;
+
+  /// Consistent with [==]: equal deletes hash the same.
+  @override
+  int get hashCode => Object.hash(entityName, operationKey, recordId);
 }

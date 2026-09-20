@@ -25,19 +25,19 @@ import 'turn.dart';
 /// bound to the app's one [ConnectionController] instead of opening a second
 /// source of truth for the registry, the address or the token.
 ///
-/// It also owns the one write in flight (`T13`): [pendingWrite] is the draft the
-/// conversation is assembling, and the next utterance is an answer to it rather
-/// than a new command. The resolver stays stateless and receives that draft as a
-/// parameter.
+/// It also owns the one write in flight (`T13`, `T13b`): [pendingWrite] is the
+/// write the conversation is assembling or confirming, and the next utterance
+/// is an answer to it rather than a new command. The resolver stays stateless
+/// and receives that write as a parameter.
 class ConversationController extends ChangeNotifier {
   ConversationController(
     ConnectionController connection, {
     OperationResolver? resolver,
   }) : _connection = connection,
        // The shipped resolver is the deterministic one: `T12`'s read path and
-       // `T13`'s create path are both in it. It is defaulted here rather than
-       // required, the same way `ConnectionController` defaults `BackendProbe`
-       // when the caller does not hand it one.
+       // the write paths of `T13` and `T13b` are all in it. It is defaulted
+       // here rather than required, the same way `ConnectionController` defaults
+       // `BackendProbe` when the caller does not hand it one.
        _resolver = resolver ?? const DeterministicOperationResolver(),
        _executor = connection.buildExecutor() {
     _connection.addListener(_onConnectionChanged);
@@ -50,15 +50,16 @@ class ConversationController extends ChangeNotifier {
   final OperationResolver _resolver;
   final OperationExecutor _executor;
 
-  /// The write in flight, if any (`T13`). Null when the conversation is not in
-  /// the middle of a create.
+  /// The write in flight, if any (`T13`, `T13b`). Null when the conversation is
+  /// not in the middle of a write — a create or a delete.
   ///
   /// It lives here and never inside the resolver, which is stateless: owning
-  /// the draft is what makes the next utterance an answer to a question instead
+  /// the write is what makes the next utterance an answer to a question instead
   /// of a new command.
   PendingWrite? _pending;
 
-  /// The write the conversation is assembling, or null when there is none.
+  /// The write the conversation is assembling or confirming, or null when
+  /// there is none.
   PendingWrite? get pendingWrite => _pending;
 
   /// The app pins its locale to Spanish in `main.dart` rather than exposing it

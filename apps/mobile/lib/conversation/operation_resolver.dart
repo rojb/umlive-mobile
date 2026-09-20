@@ -8,8 +8,8 @@
 ///
 /// The shipped implementation is `DeterministicOperationResolver`
 /// (`deterministic_resolver.dart`): the deterministic read path of `T12` and
-/// the create path of `T13`, in one stateless class. There is no placeholder
-/// implementation left, and no second resolver.
+/// the write paths of `T13` and `T13b`, in one stateless class. There is no
+/// placeholder implementation left, and no second resolver.
 library;
 
 import '../l10n/app_localizations.dart';
@@ -47,9 +47,11 @@ class ResolverOutcome {
   /// when there is none.
   ///
   /// A non-null value means the *next* utterance is an answer to that
-  /// conversation — a field value, an affirmative or a negative (`FR-MC02`,
-  /// `FR-MC03`) — and never a new command. The controller owns the draft and
-  /// hands it back on the next call; the resolver stays stateless.
+  /// conversation — a field value (a create), an affirmative or a negative
+  /// (either write) (`FR-MC02`, `FR-MC03`, `FR-MC05`) — and never a new command.
+  /// The controller owns the write and hands it back on the next call; the
+  /// resolver stays stateless. It is sealed, so a consumer has to handle both a
+  /// [PendingCreate] and a [PendingDelete].
   final PendingWrite? pending;
 }
 

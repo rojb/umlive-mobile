@@ -635,6 +635,62 @@
     }
   },
 
+  "conversationDeleteReadBack": "Se va a eliminar el registro {id} de {entity}.",
+  "@conversationDeleteReadBack": {
+    "description": "T13b: the read-back before a delete, in domain language (FR-MC05). It restates the identity of the target, so the operator accepts or refuses the exact record that would be destroyed, and nothing is executed before an affirmative. Deliberately no article before the entity name: Spanish gender is not derivable from the schema, so the sentence has to be right for cliente and for dirección alike. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationDeleteDone": "Listo: se eliminó el registro {id} de {entity}.",
+  "@conversationDeleteDone": {
+    "description": "T13b: the confirmation of a delete. A 2xx is the only thing that may say this, so a failed or queued delete can never sound like a success (FR-MC05). Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationDeleteFailed": "No se pudo eliminar el registro de {entity}: el backend no respondió correctamente.",
+  "@conversationDeleteFailed": {
+    "description": "T13b: the failed delete, for a call that ran and did not come back 2xx, or that never reached the backend. It states only that it failed, without inventing a cause: T22 replaces it with sentences derived from the status and the keys of the generated errors map. A failed delete must never sound like a success. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationDeleteNoTarget": "No se puede eliminar un registro de {entity} sin saber cuál: hace falta indicar el identificador.",
+  "@conversationDeleteNoTarget": {
+    "description": "T13b: refusal when the utterance asked to delete but named no target (FR-MC05), and also when the delete operation declares no path parameter to carry one. A delete target is never inferred from an ambiguous or incomplete utterance, and this is the sentence that says so instead of guessing. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationDeleteNoOperation": "El backend no publica ninguna operación para eliminar {entity}.",
+  "@conversationDeleteNoOperation": {
+    "description": "T13b: refusal when the entity publishes no delete role, or when the role points at an operation the registry does not carry. No route is ever guessed to fill the gap (FR-MA03). Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "entity": {
+        "type": "String"
+      }
+    }
+  },
+
   "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",
   "@voiceStatusChecking": {
     "description": "Voice readiness banner while the app verifies that the bundled recognition model is present and usable (FR-MB03)."

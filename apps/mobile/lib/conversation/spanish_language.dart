@@ -211,14 +211,15 @@ const Set<String> createTriggers = <String>{
   'sumar',
 };
 
-/// The delete and update verbs this build does **not** implement.
+/// The words that ask the app to *delete* a record (`FR-MC05`).
 ///
-/// They are input vocabulary, not copy. Their only job is to keep an utterance
-/// like *borrá el cliente 1* from falling through to the read path and being
-/// answered with a listing — reading a record the operator asked to destroy
-/// would be a lie about what the app did. `T13b` replaces this guard with the
-/// destructive conversation of `FR-MC05`.
-const Set<String> mutationTriggers = <String>{
+/// They are input vocabulary, not copy: the operator says them, the app never
+/// renders them. They open the destructive conversation, which names one target
+/// and restates its identity before anything is sent. They are also the reason
+/// a delete can never fall through to the read path — *borrá el cliente 1* would
+/// otherwise find the `get` role and **read** the record it was asked to
+/// destroy, which is a lie about what the app did.
+const Set<String> deleteTriggers = <String>{
   'borra',
   'borrar',
   'borrame',
@@ -229,6 +230,21 @@ const Set<String> mutationTriggers = <String>{
   'suprimir',
   'quita',
   'quitar',
+  'saca',
+  'sacar',
+  'remueve',
+  'remover',
+};
+
+/// The words that ask the app to *modify* a record: **not implemented**.
+///
+/// They are input vocabulary, not copy, and they exist for one reason: an
+/// update is a write this build does not perform, so it has to be refused with
+/// the entity named instead of falling through to the read path, where
+/// *modificá el cliente 1* would be answered with a listing. An update needs
+/// the record read first, which is its own task; until then this set is the
+/// guard that keeps the refusal honest.
+const Set<String> updateTriggers = <String>{
   'modifica',
   'modificar',
   'modificame',
