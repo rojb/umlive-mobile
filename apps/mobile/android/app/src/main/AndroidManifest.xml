@@ -5,6 +5,21 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC (T19, FR-MD04): the
+         drain window must survive an OEM that kills background work even with
+         battery optimisation switched off (measured on this handset: HONOR
+         TFY-LX3, MagicOS 7.1), and a foreground service is the platform's own
+         mechanism for that. The drain is a data-sync service by Android's own
+         taxonomy and declares that type below. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- POST_NOTIFICATIONS (T19): the notification is what makes the window
+         visible to the operator. Without the grant the service still runs and
+         still keeps the process scheduled; the operator simply does not see
+         why. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Cleartext HTTP is accepted only for explicit private-range addresses
          and that restriction is enforced in Dart, not here (PRD-MOBILE.md §7,
          "Security — transport"); tunnels must be HTTPS. -->
@@ -35,6 +50,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The drain window (T19, FR-MD04). Measured reason: this handset
+             (HONOR TFY-LX3, MagicOS 7.1) kills background work aggressively
+             even with battery optimisation disabled, and a queued command that
+             never drains is a promise the app made and did not keep. Not
+             exported: only this app starts and stops it. -->
+        <service
+            android:name=".OutboxDrainService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

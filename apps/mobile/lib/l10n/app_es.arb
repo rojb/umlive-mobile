@@ -1064,5 +1064,15 @@
   "outboxItemOrphanFailed": "Una operación pendiente ya no corresponde a ninguna entidad del backend. Queda en la cola.",
   "@outboxItemOrphanFailed": {
     "description": "T16, FR-MD08: the failure for the same case — the queued operation matches no entity of the current registry, so it cannot be replayed and the item is retained in the queue rather than discarded. T22 will refine the reason sentences; this one only has to be honest. Neutral register, no tuteo or voseo."
+  },
+
+  "drainNotificationBody": "{count, plural, =1{1 operación pendiente, esperando conexión.} other{{count} operaciones pendientes, esperando conexión.}}",
+  "@drainNotificationBody": {
+    "description": "T19/FR-MD04 — the persistent notification that keeps the drain window alive on this OEM must say what the app still owes, and the title is appTitle, reused rather than duplicated.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

@@ -936,3 +936,59 @@ target is never inferred.
   screen read *"No hay nada en cola"* and the backend held three `pago` records of
   `1500`. Between the restore and the drain, **no input command of any kind was
   issued**.
+
+## 23. Surviving the OEM: the drain window (T19)
+
+- **Why a foreground service at all.** This handset (`HONOR TFY-LX3`, MagicOS
+  7.1) kills background work aggressively even with battery optimisation
+  disabled, and a queued command that never drains is a promise the app made and
+  did not keep. `OutboxDrainService` is a `dataSync` foreground service with one
+  ongoing, low-importance notification: it does no network, no storage and no
+  business logic. It exists so the Dart isolate that owns the drain is still
+  scheduled to run.
+- **The strings come from Dart.** The notification's title and body arrive
+  through `com.umlive.voice/service` from `app_es.arb` (`appTitle` and
+  *"{count} operaciones pendientes, esperando conexión."*), so the Kotlin side
+  holds no user-facing copy — the same rule the rest of the app follows.
+- **The window opens only when it is owed, and closes when it is not.** It is
+  open while the app is hidden **and** the queue is non-empty: the operator is not
+  looking at the app any more and the drain still owes them an answer. It closes
+  on resume, and it closes the moment the queue empties — a notification that
+  outlives the work is a lie about work still owed. Verified on the device:
+  `action=start count=1` when the app was hidden, and `action=stop` 0.1 s after
+  `step=stop reason=done remaining=0`.
+- **The permission is asked once, in the foreground, at the first moment there is
+  something to say.** `POST_NOTIFICATIONS` on Android 13 is requested when the
+  queue first becomes non-empty while the app is visible, and denial is an honest
+  limit rather than a failure: the window still runs and still keeps the app
+  scheduled, and the operator simply does not see the notification. Measured: the
+  dialog appeared at that moment, and the log shows `action=permission
+  result=granted`.
+- **What makes the window worth anything: the app keeps asking.** While the app is
+  hidden and owes work, the conversation re-probes every 20 s — the same cadence
+  the connection uses while visible, deliberately the same number so the two never
+  fight. Without it the service would keep the process alive and nothing would
+  ever ask the backend again, which is exactly what the first acceptance attempt
+  measured: 2 m 45 s with the process alive and zero probes. Measured after the
+  fix, **with the screen off**: switch-off at `15:30:12`, `mWakefulness=Asleep`
+  confirmed at `15:30:43`, connectivity restored at `15:30:48`, probe
+  `status=200 state=connected` at `15:30:56.696` (8.7 s later, off the timer that
+  was already ticking with the screen off), `drain step=start count=1` at
+  `15:30:57.501`, `POST_/api/pago … status=201 … replay=true` at `15:30:57.877`,
+  `step=stop reason=done remaining=0` at `15:30:57.928`, the hidden probe stopped
+  and the service stopped at `15:30:57.976`. The process was the same PID
+  throughout — the OEM did not kill it — and **no input command of any kind was
+  issued between the restore and the drain**.
+- **A defect of the projection nearly hid the whole feature.** The in-memory queue
+  projection had no writer on the path that enqueues: a write the conversation
+  queued left `queuedCount` at zero, so there was no badge, no permission request
+  and no window at all — the first acceptance run never tested the OEM, it tested
+  the projection. The conversation now refreshes the projection when its own
+  outcome queued a write, because the conversation is one of the queue's writers
+  and therefore one of the places that must refresh it.
+- **One check stayed unverified, and it is instrument, not product.** The
+  post-resume screen check (the badge gone, the queue screen empty) was blocked by
+  the device's PIN keyguard, which no one could dismiss. What the queue's
+  emptiness rests on instead: `remaining=0` from the drain, no notification
+  registered for the package, `action=recover count=0`, and `api/pago` holding the
+  replayed record.

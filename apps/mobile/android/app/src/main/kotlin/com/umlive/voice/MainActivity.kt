@@ -1,8 +1,11 @@
 package com.umlive.voice
 
+import android.content.Intent
 import android.content.res.AssetManager
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileNotFoundException
@@ -28,6 +31,16 @@ import java.util.concurrent.Executors
  * A failed copy is reported as an error and never as a partial success: the Dart
  * side verifies the digest it receives here against the identity recorded by
  * `tool/fetch_sherpa_model.sh`.
+ *
+ * Channel `com.umlive.voice/service` (`T19`) is the drain window's boundary:
+ *  - `start(title, body, count)` -> `{ ok: true }` or `{ ok: false, error }`
+ *  - `update(title, body, count)` -> same
+ *  - `stop()` -> same
+ *
+ * Each call forwards an action to [OutboxDrainService] and is answered with
+ * those two fields, so the Dart side can log the outcome of its own request.
+ * No failure is thrown across the channel: a platform that refuses to start the
+ * service is a log line, not a broken conversation.
  */
 class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -47,6 +60,81 @@ class MainActivity : FlutterActivity() {
 
                 else -> result.notImplemented()
             }
+        }
+        configureServiceChannel(flutterEngine)
+    }
+
+    /**
+     * The drain window's channel (`T19`), beside the assets channel and sharing
+     * nothing with it.
+     */
+    private fun configureServiceChannel(flutterEngine: FlutterEngine) {
+        val channel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SERVICE_CHANNEL,
+        )
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> forwardToService(OutboxDrainService.ACTION_START, call, result)
+                "update" -> forwardToService(OutboxDrainService.ACTION_UPDATE, call, result)
+                "stop" -> forwardToService(OutboxDrainService.ACTION_STOP, call, result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    /**
+     * Turns one channel call into the service intent that carries it.
+     *
+     * The strings travel with the intent rather than being owned here: the
+     * notification's copy is app copy, it lives in `app_es.arb`, and this side
+     * of the boundary never invents a sentence.
+     */
+    private fun forwardToService(
+        action: String,
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        // Non-null on purpose: the service refuses an empty copy anyway, and
+        // this keeps the intent's extras plain values on the JVM side.
+        val title = call.argument<String>("title") ?: ""
+        val body = call.argument<String>("body") ?: ""
+        val count = call.argument<Int>("count") ?: 0
+        val intent = Intent(this, OutboxDrainService::class.java)
+            .setAction(action)
+            .putExtra(OutboxDrainService.EXTRA_TITLE, title)
+            .putExtra(OutboxDrainService.EXTRA_BODY, body)
+            .putExtra(OutboxDrainService.EXTRA_COUNT, count)
+        try {
+            when (action) {
+                OutboxDrainService.ACTION_START -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                }
+
+                OutboxDrainService.ACTION_STOP -> {
+                    try {
+                        startService(intent)
+                    } catch (_: IllegalStateException) {
+                        // A backgrounded app may not start a service on API 26+,
+                        // and a stop arrives exactly from there: the drain
+                        // finished while the operator was not looking. Stopping
+                        // the service through the platform is always allowed
+                        // and reaches the same end -- the service dies and its
+                        // notification goes with it.
+                        stopService(Intent(this, OutboxDrainService::class.java))
+                    }
+                }
+
+                else -> startService(intent)
+            }
+            result.success(mapOf("ok" to true))
+        } catch (error: Throwable) {
+            val detail = error.javaClass.simpleName
+            result.success(mapOf("ok" to false, "error" to detail))
         }
     }
 
@@ -173,6 +261,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "com.umlive.voice/assets"
+        const val SERVICE_CHANNEL = "com.umlive.voice/service"
         const val PROGRESS_STEP = 8L * 1024 * 1024
         const val HEX = "0123456789abcdef"
     }

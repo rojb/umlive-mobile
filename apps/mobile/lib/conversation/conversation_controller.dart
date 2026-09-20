@@ -1,7 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:permission_handler/permission_handler.dart';
 
+import '../app/drain_service.dart';
 import '../core/log.dart';
 import '../data/outbox_repository.dart';
 import '../l10n/app_localizations_es.dart';
@@ -49,12 +51,19 @@ import 'turn.dart';
 /// [refreshQueue], [cancelQueued] and [retryQueued], so the screen never opens
 /// the database — and the badge and the list behind it can never disagree,
 /// because both are projections of the same read.
-class ConversationController extends ChangeNotifier {
+///
+/// It also owns the drain window (`T19`). Because it owns the queue, it is the
+/// only object that knows whether the app still owes the operator an answer
+/// while the app is not on screen, so it is the one that opens and closes the
+/// foreground service that keeps the process scheduled for the drain, and the
+/// one that keeps its notification's count equal to the queue behind it.
+class ConversationController extends ChangeNotifier with WidgetsBindingObserver {
   ConversationController(
     ConnectionController connection, {
     required OutboxRepository outbox,
     OperationResolver? resolver,
     SpeechSink? speech,
+    DrainService? drainService,
   }) : _connection = connection,
        // The shipped resolver is the deterministic one: `T12`'s read path and
        // the write paths of `T13` and `T13b` are all in it. It is defaulted
@@ -83,7 +92,20 @@ class ConversationController extends ChangeNotifier {
     // Assigned in the body rather than through `this._speech` so the named
     // parameter stays public while the field stays private to this library.
     _speech = speech;
+    // The drain window's service (`T19`). Built here rather than in
+    // `AppServices`, which builds the *shared* objects: nothing else in the app
+    // reads or drives this one, and the object that owns the queue is the only
+    // thing that can decide when a window is owed. `AppServices` still composes
+    // the conversation, so the dependency is injectable and a caller can hand
+    // over another implementation.
+    _drainService = drainService ?? DrainService();
     _connection.addListener(_onConnectionChanged);
+    // The drain window follows the app's lifecycle (`T19`), so this controller
+    // has to hear about it. Registered here and removed in [dispose], beside
+    // the registration `ConnectionController` already makes for its own
+    // cadence: one observer per controller, and the app builds exactly one of
+    // each.
+    WidgetsBinding.instance.addObserver(this);
     _syncGreeting();
     // The badge and the list start from what the queue actually holds, so a
     // cold start that finds rows left by a force-kill shows them before any
@@ -93,6 +115,17 @@ class ConversationController extends ChangeNotifier {
   }
 
   static const String _greetingId = 'greeting';
+
+  /// The cadence of the hidden probe (`T19`).
+  ///
+  /// The same 20 s [ConnectionController] uses for its own re-probe while the
+  /// app is visible, and deliberately the same number rather than a second
+  /// opinion about how often to ask the backend: the two cadences never run at
+  /// the same time — the connection's own stops when the app leaves the
+  /// foreground, this one only exists while the app is away — so equal
+  /// intervals mean a transition in either direction never changes how often
+  /// the backend is asked.
+  static const Duration _hiddenProbeInterval = Duration(seconds: 20);
 
   final ConnectionController _connection;
 
@@ -110,6 +143,45 @@ class ConversationController extends ChangeNotifier {
   /// the [SpeechSink] port so nothing here can reach the engine, the voice or
   /// the platform.
   late final SpeechSink? _speech;
+
+  /// The drain window's foreground service (`T19`), through which this class
+  /// keeps the app's process scheduled while the app is not in the foreground.
+  ///
+  /// Nothing here knows it is a notification: the port is "open or close the
+  /// window, and say how much is still owed".
+  late final DrainService _drainService;
+
+  /// The window's transitions, chained one after another.
+  ///
+  /// A start and the update that follows it must not overtake each other on the
+  /// method channel: the count of a window that does not exist yet would be
+  /// lost, and a stop that overtook an update would leave a notification
+  /// describing work that is already done.
+  Future<void> _drainWindowChain = Future<void>.value();
+
+  /// True while this run has asked the platform to hold the drain window open.
+  ///
+  /// It records that the window was **asked for**, not that the platform
+  /// granted it: the service reports its own failures, and a refused window is
+  /// a log line rather than a state this class can act on. Keeping the flag on
+  /// the request side is also what stops a refused start from being retried on
+  /// every queue change, which would be noise, not diligence.
+  bool _drainWindowOpen = false;
+
+  /// True once this run has asked for the notification permission, granted or
+  /// not: Android shows that dialog once per install, and asking again while
+  /// the answer is still pending would be a second dialog over the first.
+  bool _notificationPermissionAsked = false;
+
+  /// True while the app is not in the foreground (`T19`).
+  bool _inBackground = false;
+
+  /// The hidden probe cadence (`T19`), or null when none is running.
+  ///
+  /// Runs only while the app is not in the foreground **and** the queue still
+  /// owes the operator something. [_syncHiddenProbe] is the only thing that
+  /// schedules or drops it, and at most one is ever live.
+  Timer? _hiddenProbeTimer;
 
   /// The write in flight, if any (`T13`, `T13b`). Null when the conversation is
   /// not in the middle of a write — a create or a delete.
@@ -154,6 +226,12 @@ class ConversationController extends ChangeNotifier {
     final profileId = _connection.profileId;
     if (profileId == null || profileId.isEmpty) {
       _queue = const <OutboxItem>[];
+      // Nothing is owed to anybody, so a window held open by a previous
+      // profile is closed here rather than left describing a queue that is no
+      // longer this app's — and with nothing owed there is also nothing left to
+      // ask the backend about, so the hidden cadence stops too.
+      unawaited(_syncDrainWindow());
+      _syncHiddenProbe();
       notifyListeners();
       return;
     }
@@ -173,6 +251,17 @@ class ConversationController extends ChangeNotifier {
     await _outbox.recoverInFlight(profileId);
     final items = await _outbox.outstanding(profileId);
     _queue = items;
+    // Two things follow the projection, both fire-and-forget because neither
+    // may hold the frame that asked for the queue: the permission the drain
+    // window needs, which is asked while the app can still show the dialog, and
+    // the window itself, whose count is a function of the queue and nothing
+    // else (`T19`).
+    _maybeRequestNotificationPermission();
+    unawaited(_syncDrainWindow());
+    // The projection is also what tells the hidden cadence whether it is still
+    // owed work: a drain that emptied the queue while the app was away stops it
+    // here, without waiting for the next tick.
+    _syncHiddenProbe();
     notifyListeners();
   }
 
@@ -363,6 +452,28 @@ class ConversationController extends ChangeNotifier {
       'pending': _pending != null,
       'advanced': advanced,
     });
+    // The conversation is one of the queue's writers, so it is one of the
+    // places that must re-project it. A queued outcome is the only path in
+    // this class that **adds** a durable row, and before this refresh the
+    // projection had no writer on exactly that path. Measured on `TFY-LX3`,
+    // the operator queued one `pago` offline (`[umlive][outbox]
+    // action=enqueue id=6 seq=1 …`), the durable row existed, and yet
+    // `queuedCount` stayed 0 — no badge on the queue action, no
+    // notification-permission request, no drain window and no hidden
+    // re-probe, so `T19`'s acceptance run never exercised the OEM at all
+    // (`[umlive][service]` appears zero times in that capture). The projection
+    // silently disabled all four.
+    //
+    // It runs before the turn's own notification for a reason beyond the
+    // rebuild: the notification permission request hangs off a non-empty
+    // projection (`_maybeRequestNotificationPermission`), so the projection
+    // must be re-read here and now, while the app is still visible, or the
+    // dialog waits for another writer that may never come. Nothing else
+    // changes: no new timer, no polling of the database, and the durable row
+    // stays the only source of truth.
+    if (outcome.status == TurnStatus.queued) {
+      await refreshQueue();
+    }
     // Every settled sentence is spoken, wherever it lands on screen. The UX
     // rule is that if text is in the assistant's voice, it was also spoken —
     // including the band's question or read-back, because [ResolverOutcome
@@ -400,6 +511,186 @@ class ConversationController extends ChangeNotifier {
   void _onConnectionChanged() {
     _syncGreeting();
     unawaited(requestDrain());
+  }
+
+  /// The lifecycle half of the drain window (`T19`).
+  ///
+  /// The app is not in the foreground from `inactive` onwards, and `inactive`
+  /// is deliberate rather than sloppy: it is the first state that says the
+  /// operator has stopped looking, and the drain must already be protected by
+  /// the time the process is a candidate for the OEM's killer. `resumed` is the
+  /// only state that ends the window, because that is the one where the app is
+  /// visible again and being scheduled on its own merits.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _inBackground = false;
+        // The permission dialog belongs to a visible app, so a queue that first
+        // became non-empty while the app was away is asked about here instead.
+        _maybeRequestNotificationPermission();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _inBackground = true;
+    }
+    // The cadence belongs to the work the app owes, so it is re-decided on
+    // exactly the transition that changed whether the app is looking: on the
+    // way out it starts when the queue is non-empty, and on the way back in it
+    // stops, because the connection's own cadence takes over again.
+    _syncHiddenProbe();
+    unawaited(_syncDrainWindow());
+  }
+
+  /// Keeps the hidden probe in step with what the app owes (`T19`).
+  ///
+  /// **The rule:** while the app is hidden, the probe cadence belongs to the
+  /// work the app owes. Visible, the connection's own timer asks the backend on
+  /// its slow cadence (unchanged by this method). Hidden with an empty queue,
+  /// nothing is asked at all — there is no promise to keep, so a request every
+  /// 20 s would be work nobody asked for. Hidden with a non-empty queue, the
+  /// app keeps asking every [_hiddenProbeInterval] until the queue empties or
+  /// the app comes back.
+  ///
+  /// **Why it exists.** [ConnectionController] cancels its re-probe timer as
+  /// soon as the app leaves the foreground, which is right for a *visible* app:
+  /// polling behind the operator's back is the wrong default. But the drain
+  /// window ([DrainService]) keeps the process scheduled on purpose while the
+  /// app is hidden, and without this timer that scheduling is worth nothing:
+  /// the process survives and nothing ever asks the backend again, so an
+  /// in-flight send can finish and no new drain can start until the app is
+  /// resumed. A notification reading *"1 operación pendiente, esperando
+  /// conexión."* is only honest if the app is still asking whether the
+  /// connection came back — otherwise the window describes a wait that is not
+  /// being worked on. `T19`'s acceptance check is explicit about this: it
+  /// validates with the screen **off**.
+  ///
+  /// **What it deliberately does not do.** It does not touch reachability: the
+  /// probe is the only thing that decides the state, and the drain still starts
+  /// from the transition that probe causes through the existing connection
+  /// listener. It does not add a second way to reach the backend either — it
+  /// calls the same public `probeStored` the Connect screen's retry calls. And
+  /// it cannot force the platform to run it: **Android may throttle background
+  /// work regardless**, which is exactly the OEM problem `T19` exists for — the
+  /// window and this cadence are the app's honest best effort, not a guarantee.
+  ///
+  /// One log line per start and per stop, never one per tick: each tick's own
+  /// evidence is the `[umlive][probe]` line `probeStored` already writes, so a
+  /// line here would only duplicate it.
+  void _syncHiddenProbe() {
+    final wanted = _inBackground && _queue.isNotEmpty;
+    if (!wanted) {
+      final timer = _hiddenProbeTimer;
+      if (timer == null) return;
+      timer.cancel();
+      _hiddenProbeTimer = null;
+      logEvent('outbox', <String, Object?>{
+        'action': 'hidden_probe',
+        'result': 'stopped',
+        'count': _queue.length,
+      });
+      return;
+    }
+    if (_hiddenProbeTimer != null) return;
+    _hiddenProbeTimer = Timer.periodic(_hiddenProbeInterval, (_) {
+      // Fire-and-forget, the same contract the connection's own cadence keeps:
+      // the timer must not queue probes behind each other, and `probeStored`
+      // already owns every failure mode as a state.
+      unawaited(_connection.probeStored());
+    });
+    logEvent('outbox', <String, Object?>{
+      'action': 'hidden_probe',
+      'result': 'started',
+      'count': _queue.length,
+      'intervalSeconds': _hiddenProbeInterval.inSeconds,
+    });
+  }
+
+  /// Keeps the drain window equal to what the app actually owes (`T19`).
+  ///
+  /// One decision point, called from the only two things that can change the
+  /// answer: the app's lifecycle and the queue's own projection
+  /// ([refreshQueue]). That is what keeps the window from being open while the
+  /// app is visible — where the platform schedules it anyway — and, more
+  /// importantly, from outliving the work: a notification that stays after the
+  /// last item was sent is a lie about work still owed.
+  Future<void> _syncDrainWindow() {
+    _drainWindowChain = _drainWindowChain.then((_) => _applyDrainWindow());
+    return _drainWindowChain;
+  }
+
+  Future<void> _applyDrainWindow() async {
+    // Read once, so the decision and the copy describe the same queue.
+    final count = _queue.length;
+    final wanted = _inBackground && count > 0;
+    try {
+      if (!wanted) {
+        if (!_drainWindowOpen) return;
+        _drainWindowOpen = false;
+        await _drainService.stop();
+        return;
+      }
+      final title = _l10n.appTitle;
+      final body = _l10n.drainNotificationBody(count);
+      if (_drainWindowOpen) {
+        // A drain, a cancel or a retry moved the count while the window was
+        // open: the notification follows the queue instead of describing a
+        // queue that no longer exists.
+        await _drainService.update(title: title, body: body, count: count);
+        return;
+      }
+      _drainWindowOpen = true;
+      await _drainService.start(title: title, body: body, count: count);
+    } on Object catch (error) {
+      // Every failure of the window is non-fatal to the conversation. The
+      // drain lives in Dart; the service only keeps it scheduled, so an
+      // operator who cannot be given a window still gets their answers.
+      logEvent('service', {
+        'action': 'window',
+        'result': 'failed',
+        'reason': error.runtimeType.toString(),
+      });
+    }
+  }
+
+  /// Asks for the notification permission once per run, while the app can still
+  /// show the dialog (`T19`).
+  ///
+  /// The moment is the queue's first non-empty projection of this run: from
+  /// Android 13 on, the dialog needs a visible app to be attached to, and this
+  /// is the moment the app knows it has something to report. A queue that first
+  /// fills up while the app is away is asked about on the way back in.
+  ///
+  /// **The honest limit of this feature:** if the permission is denied the
+  /// service still runs and still keeps the process scheduled for the drain —
+  /// what is lost is only the operator's ability to see the window, not the
+  /// work it protects. That is why a denial is a log line and a continuation
+  /// rather than a refusal to drain.
+  void _maybeRequestNotificationPermission() {
+    if (_notificationPermissionAsked) return;
+    if (_queue.isEmpty) return;
+    if (_inBackground) return;
+    _notificationPermissionAsked = true;
+    unawaited(_requestNotificationPermission());
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    try {
+      final status = await Permission.notification.request();
+      logEvent('service', {
+        'action': 'permission',
+        'result': status.isGranted ? 'granted' : 'denied',
+      });
+    } on Object catch (error) {
+      // A platform that cannot be asked is not a platform that refuses: the
+      // window opens either way and only its visibility is in doubt.
+      logEvent('service', {
+        'action': 'permission',
+        'result': 'failed',
+        'reason': error.runtimeType.toString(),
+      });
+    }
   }
 
   /// Asks for a drain when the backend is reachable (`FR-MD04`).
@@ -551,6 +842,14 @@ class ConversationController extends ChangeNotifier {
   @override
   void dispose() {
     _connection.removeListener(_onConnectionChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    // The hidden cadence goes first: a timer that survived this controller
+    // would keep asking the backend on behalf of a conversation that is gone.
+    _hiddenProbeTimer?.cancel();
+    _hiddenProbeTimer = null;
+    // The window belongs to this conversation: one that is gone must not leave
+    // a foreground service claiming a queue nobody is draining any more.
+    unawaited(_drainService.stop());
     super.dispose();
   }
 }
