@@ -713,3 +713,50 @@ target is never inferred.
   `[umlive][outbox] kind=pending count=2`, and after the radios and the USB mapping
   came back the count was still 2 with the backend's collection still empty —
   `T14` persists, and it never drains on its own.
+
+## 19. Reachability from the backend, and the app speaks (T15)
+
+- **Online means the backend answered** (`FR-MD01`). Until now the only evidence
+  was the description-path probe, so a dead backend on a full-signal radio stayed
+  *Conectado* — measured: with the radios off and the USB mapping removed the pill
+  still said *Conectado*, because nothing had asked. `ReachabilityOperationExecutor`
+  is the outermost decorator, so it sees exactly the result the conversation saw,
+  and it reports every operation result into
+  `ConnectionController.reportOperationOutcome`: a response — any status — is
+  `connected`; a timeout or a transport failure is the same offline state the
+  probe's failure path decides; and a call that never left (`noBackendConfigured`,
+  `missingPathParameter`) changes nothing, because nothing was learned. One
+  `[umlive][reachability] source=operation answered=… state=…` line per report, and
+  a notification only when the state actually changed.
+- **The registry in use may still be the cached one.** An answered operation
+  proves the backend is alive; it says nothing about its description, and the next
+  probe refreshes that. Reachability and the registry's provenance are two
+  separate facts, and this task does not conflate them.
+- **The conversation speaks through a narrow port.** `SpeechSink`
+  (`lib/conversation/speech_sink.dart`) is implemented by the app's one
+  `VoiceController`, so the conversation can say a sentence without knowing the
+  synthesizer, the pinned voice or the platform — and an unavailable engine can
+  never take a turn down.
+- **The cue before the wait, the sentence after it.** `FR-MD03`: when a write is
+  awaiting confirmation the controller speaks *"Un momento…"* **before** it awaits,
+  and every settled sentence is spoken as it settles — including the band's
+  question or read-back, because `replyText` carries the sentence even while a
+  write stays open. A *collecting* draft speaks nothing extra: its next question is
+  produced locally and instantly, and that question is spoken anyway. Measured
+  submit-to-cue delta: 1 ms.
+- **Speech is serialized, and that is the other half of `T15`.** The cue and the
+  sentence behind it are issued milliseconds apart, and `flutter_tts` with
+  `awaitSpeakCompletion(true)` refuses a `speak` that arrives while another is
+  playing: the platform layer logged the second call as
+  `[umlive][tts] kind=speak result=failed`, so *"Quedó en cola: …"* — the one
+  sentence that tells the operator the write did not happen — was never spoken.
+  `VoiceController.speak` now appends to a chain, so playback order equals call
+  order, one failure never breaks the chain, and a call arriving during playback
+  logs `[umlive][tts] kind=queued … pending=true`. Re-measured: two
+  `result=started` lines in order, zero failures.
+- **Verified on `TFY-LX3`**: the stale label with the radios off and the mapping
+  removed; `answered=true state=connected` from an operation alone, with no
+  relaunch and no retry tap; `answered=false state=offlineWithCache` and the pill
+  switching to *Sin conexión, con datos guardados* on the next call; the cue 1 ms
+  after the confirmation with both sentences played in order; and the queue still
+  holding its rows across a force-kill.

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../conversation/operation_executor.dart';
 import '../conversation/outbox_executor.dart';
+import '../conversation/reachability_executor.dart';
 import '../core/log.dart';
 import '../data/connection_profile.dart';
 import '../data/outbox_repository.dart';
@@ -129,12 +130,21 @@ class ConnectionController extends ChangeNotifier {
   /// Builds the [OperationExecutor] a resolver reaches the backend through
   /// (`T11`).
   ///
-  /// The returned stack is `T14`'s: an [OutboxOperationExecutor] wrapped around
-  /// the [HttpOperationExecutor], so a write the backend never received is
-  /// persisted to the outbox before any acknowledgement reaches the operator
-  /// (`FR-MD02`). The decorator lives behind this one seam on purpose: the
-  /// resolver keeps receiving a plain [OperationExecutor] and never learns what
-  /// is wrapped around it, and every later decorator (`T17`'s read cache)
+  /// The stack, outermost first, one job per layer:
+  ///
+  /// * [ReachabilityOperationExecutor] — reports **every** call's outcome to
+  ///   [reportOperationOutcome], so `FR-MD01`'s *online means the backend
+  ///   answered* is decided by real operation traffic and not only by the
+  ///   description-path probe. It is the outermost layer on purpose: it sees
+  ///   exactly the [OperationResult] the conversation received, including one
+  ///   the outbox layer marked as queued.
+  /// * [OutboxOperationExecutor] — persists a write the backend never received
+  ///   to the outbox before any acknowledgement reaches the operator
+  ///   (`FR-MD02`).
+  /// * [HttpOperationExecutor] — the only layer that makes a request.
+  ///
+  /// The resolver keeps receiving a plain [OperationExecutor] and never learns
+  /// what is wrapped around it, and every later decorator (`T17`'s read cache)
   /// composes here rather than in a screen or in the resolver.
   ///
   /// Chosen over adding a public token getter: the token stays a private
@@ -144,11 +154,113 @@ class ConnectionController extends ChangeNotifier {
   /// change or a profile change is therefore visible to a caller holding an
   /// executor built before it happened, with no second source of truth to fall
   /// out of sync.
-  OperationExecutor buildExecutor() => OutboxOperationExecutor(
-    HttpOperationExecutor(() => _address?.base, () => _token),
-    _outbox,
-    () => _profile?.id,
+  OperationExecutor buildExecutor() => ReachabilityOperationExecutor(
+    OutboxOperationExecutor(
+      HttpOperationExecutor(() => _address?.base, () => _token),
+      _outbox,
+      () => _profile?.id,
+    ),
+    reportOperationOutcome,
   );
+
+  /// Revises the reachability state from the outcome of a real operation call
+  /// (`FR-MD01`, `T15`).
+  ///
+  /// `FR-MA05`'s state used to be decided only by the probe of the description
+  /// path, so a backend that died after that probe left the app showing
+  /// `connected` over a full-signal radio. `FR-MD01` defines online as *the
+  /// backend answered*, and an operation call is the strongest evidence the
+  /// app ever gets — a real request to a real discovered route either comes
+  /// back with a status or it does not:
+  ///
+  /// * [OperationResult.statusCode] is non-null — the backend **answered**,
+  ///   whatever the status — so the state is `connected`. A 4xx or a 5xx is
+  ///   an answer: it says the backend is alive and routing, not that it is
+  ///   unreachable.
+  /// * [OperationFailureKind.timeout] or
+  ///   [OperationFailureKind.networkUnreachable] — no answer came back —
+  ///   settles on the same offline state the probe's failure path decides,
+  ///   through [_offlineState].
+  /// * [OperationFailureKind.noBackendConfigured] and
+  ///   [OperationFailureKind.missingPathParameter] change **nothing**: no
+  ///   request was attempted, so nothing was learned about the backend.
+  ///
+  /// One `[umlive][reachability] source=operation answered=… state=…` line is
+  /// logged per report, and listeners are notified only when the state
+  /// actually changed.
+  ///
+  /// The registry in use after an answered report may still be the **cached**
+  /// one: `FR-MD01` only asked whether the backend is alive, and an answered
+  /// operation proves it is. Refreshing the *description* stays the probe's
+  /// job — the next connect, retry or automatic probe re-fetches it, and the
+  /// entities the app works with until then are the ones the backend described
+  /// last time (`FR-MA04`).
+  void reportOperationOutcome(OperationResult result) {
+    if (result.statusCode != null) {
+      // The backend answered, whatever the status.
+      _applyReportedState(
+        answered: true,
+        state: ReachabilityState.connected,
+      );
+      return;
+    }
+
+    if (result.failure == OperationFailureKind.timeout ||
+        result.failure == OperationFailureKind.networkUnreachable) {
+      // No answer came back. The stored row is the only "a registry exists for
+      // this profile" evidence reachable synchronously here; `_runProbe` asks
+      // the repository the same question before it probes.
+      _applyReportedState(
+        answered: false,
+        state: _offlineState(hasCache: _cachedRegistry != null),
+      );
+      return;
+    }
+
+    // Neither an answer nor an attempt: `noBackendConfigured` and
+    // `missingPathParameter` mean no request was made at all, so no state
+    // change — but the report is still one line, like every other. (Every
+    // remaining failure kind is classified from a status the backend sent, so
+    // it took the first branch above.)
+    _logReported(answered: false, state: _reachability);
+  }
+
+  /// Moves the state the report names, unless it is already the state on
+  /// screen.
+  void _applyReportedState({
+    required bool answered,
+    required ReachabilityState state,
+  }) {
+    _logReported(answered: answered, state: state);
+    if (state == _reachability) return;
+    _reachability = state;
+    notifyListeners();
+  }
+
+  /// One `[umlive][reachability]` line per report, in the same shape whether
+  /// the state changed or not.
+  void _logReported({
+    required bool answered,
+    required ReachabilityState state,
+  }) {
+    logEvent('reachability', {
+      'source': 'operation',
+      'answered': answered,
+      'state': state.name,
+    });
+  }
+
+  /// The offline state a failed attempt settles on (`FR-MA05`).
+  ///
+  /// The same decision `BackendProbe._classify` makes for a probe that got no
+  /// answer: a stored registry for this profile means the app still has
+  /// something to work with (`offlineWithCache`, `FR-MA04`); with nothing
+  /// stored, it is plainly `unreachable`. It lives here so the operation path
+  /// spells *what offline means* in exactly the same terms the probe's failure
+  /// path already does.
+  ReachabilityState _offlineState({required bool hasCache}) => hasCache
+      ? ReachabilityState.offlineWithCache
+      : ReachabilityState.unreachable;
 
   /// True when the active address was accepted *and* is unencrypted, so the
   /// screen owes the user a visible warning (`PRD-MOBILE.md` §7).

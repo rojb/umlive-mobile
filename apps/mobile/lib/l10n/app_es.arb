@@ -451,6 +451,11 @@
     "description": "Assistant greeting when the description declares no operations. UX spec Pass 6: state that the backend has no operations instead of showing an empty conversation surface."
   },
 
+  "conversationResolvingCue": "Un momento…",
+  "@conversationResolvingCue": {
+    "description": "T15, UX Pass 5 (Resolving): spoken within 2 s of an utterance when a write is about to be sent (FR-MD03), so silence is never mistaken for failure while the operator is not looking at the screen. The ellipsis marks a wait that is genuinely unknown — the turn that follows is spoken when it settles. Neutral register, no tuteo or voseo."
+  },
+
   "conversationPending": "Resolviendo la indicación…",
   "@conversationPending": {
     "description": "T11: placeholder text of the assistant turn added the moment a user turn is submitted, shown only while resolution is in flight (TurnStatus.pending) and replaced once it settles. Neutral register, no tuteo or voseo."

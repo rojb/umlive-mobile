@@ -10,6 +10,7 @@ import 'deterministic_resolver.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
 import 'pending_write.dart';
+import 'speech_sink.dart';
 import 'turn.dart';
 
 /// Owns the conversation's turn list (`T11`).
@@ -25,6 +26,11 @@ import 'turn.dart';
 /// bound to the app's one [ConnectionController] instead of opening a second
 /// source of truth for the registry, the address or the token.
 ///
+/// It also owns the spoken side of a turn (`T15`). The conversation speaks
+/// through a [SpeechSink] it knows nothing else about, so the synthesizer, the
+/// pinned voice and the platform stay behind the voice layer. Speech is always
+/// fire-and-forget: it never delays, fails or reorders a turn.
+///
 /// It also owns the one write in flight (`T13`, `T13b`): [pendingWrite] is the
 /// write the conversation is assembling or confirming, and the next utterance
 /// is an answer to it rather than a new command. The resolver stays stateless
@@ -33,6 +39,7 @@ class ConversationController extends ChangeNotifier {
   ConversationController(
     ConnectionController connection, {
     OperationResolver? resolver,
+    SpeechSink? speech,
   }) : _connection = connection,
        // The shipped resolver is the deterministic one: `T12`'s read path and
        // the write paths of `T13` and `T13b` are all in it. It is defaulted
@@ -40,6 +47,12 @@ class ConversationController extends ChangeNotifier {
        // `BackendProbe` when the caller does not hand it one.
        _resolver = resolver ?? const DeterministicOperationResolver(),
        _executor = connection.buildExecutor() {
+    // The voice layer implements the port; `AppServices` hands over the app's
+    // one `VoiceController`. Null means the conversation is silent — capture
+    // and resolution still work, which is what makes the sink optional.
+    // Assigned in the body rather than through `this._speech` so the named
+    // parameter stays public while the field stays private to this library.
+    _speech = speech;
     _connection.addListener(_onConnectionChanged);
     _syncGreeting();
   }
@@ -49,6 +62,11 @@ class ConversationController extends ChangeNotifier {
   final ConnectionController _connection;
   final OperationResolver _resolver;
   final OperationExecutor _executor;
+
+  /// The voice layer, or null when the conversation speaks nothing. Held as
+  /// the [SpeechSink] port so nothing here can reach the engine, the voice or
+  /// the platform.
+  late final SpeechSink? _speech;
 
   /// The write in flight, if any (`T13`, `T13b`). Null when the conversation is
   /// not in the middle of a write — a create or a delete.
@@ -102,7 +120,30 @@ class ConversationController extends ChangeNotifier {
     logEvent('conversation', {'action': 'submit', 'length': trimmed.length});
     notifyListeners();
 
+    // The cue before the wait (`FR-MD03`). A write that is awaiting
+    // confirmation is about to be sent, so the operator must hear something
+    // within 2 s of the utterance instead of silence that is indistinguishable
+    // from failure. The two shapes that count are the same two the band
+    // confirms with its own controls: a [PendingDelete], and a [PendingCreate]
+    // whose phase is [WritePhase.confirming].
+    //
+    // A *collecting* draft deliberately speaks nothing extra: its question is
+    // answered locally and instantly — no network call is made — and the next
+    // question is spoken anyway, as the settled sentence of that same turn. A
+    // cue here would be a promise of a wait that does not exist.
+    if (_awaitsConfirmation) {
+      _speak(_l10n.conversationResolvingCue, kind: 'cue');
+    }
+
     unawaited(_resolve(trimmed, pendingId));
+  }
+
+  /// True when the write in flight is waiting for its affirmative, which means
+  /// the next utterance is what sends it (`FR-MD03`).
+  bool get _awaitsConfirmation {
+    final pending = _pending;
+    return pending is PendingDelete ||
+        (pending is PendingCreate && pending.phase == WritePhase.confirming);
   }
 
   /// Confirms the write the band is showing.
@@ -185,7 +226,38 @@ class ConversationController extends ChangeNotifier {
       'pending': _pending != null,
       'advanced': advanced,
     });
+    // Every settled sentence is spoken, wherever it lands on screen. The UX
+    // rule is that if text is in the assistant's voice, it was also spoken —
+    // including the band's question or read-back, because [ResolverOutcome
+    // .replyText] carries that sentence even while a write stays open. A
+    // sentence that only appears in the list would be invisible to an operator
+    // who is not looking at the handset, which is the whole point of `FR-MD03`.
+    _speak(outcome.replyText, kind: 'turn');
     notifyListeners();
+  }
+
+  /// Speaks one sentence through the [SpeechSink], fire-and-forget (`T15`).
+  ///
+  /// Speech must never delay, fail or reorder a turn: the future is not
+  /// awaited, a failed synthesis is a log line and nothing else, and an empty
+  /// sentence is never spoken — silence is not a turn's answer, it is an
+  /// accident. The log carries a **length**, never the sentence: the text is
+  /// app copy, and the discipline this app keeps everywhere is that an
+  /// operator's data does not reach the log.
+  void _speak(String text, {required String kind}) {
+    final sink = _speech;
+    final trimmed = text.trim();
+    if (sink == null || trimmed.isEmpty) return;
+    logEvent('conversation', {
+      'action': 'spoke',
+      'kind': kind,
+      'length': trimmed.length,
+    });
+    unawaited(
+      sink.speak(trimmed).catchError((Object error) {
+        logEvent('conversation', {'action': 'speak_failed'});
+      }),
+    );
   }
 
   void _onConnectionChanged() => _syncGreeting();

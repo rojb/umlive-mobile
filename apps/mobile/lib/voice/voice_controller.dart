@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../conversation/speech_sink.dart';
 import '../core/log.dart';
 import 'live_transcriber.dart';
 import 'microphone_capture.dart';
@@ -57,7 +58,14 @@ enum VoiceProblem {
 /// It is the single object the presentation layer listens to for voice state,
 /// the same way `ConnectionController` owns connection state. Nothing else
 /// builds a recognizer, and nothing else copies the model.
-class VoiceController extends ChangeNotifier {
+///
+/// It also **implements the conversation's [SpeechSink] port** (`T15`): the
+/// conversation speaks through this object, so the one place that knows how to
+/// synthesise is the one place that speaks. An unavailable or failed synthesis
+/// must never travel back as an exception that could take a turn down
+/// (`FR-MD03`) — the conversation speaks fire-and-forget, treats a failure as
+/// a log line, and never lets speech delay, fail or reorder a turn.
+class VoiceController extends ChangeNotifier implements SpeechSink {
   VoiceController({
     SherpaModelProvisioner? provisioner,
     PlatformSpeech? speech,
@@ -261,8 +269,67 @@ class VoiceController extends ChangeNotifier {
     return _speech.synthesizeToFile(text, directory: directory);
   }
 
-  /// Speaks [text] through the pinned offline voice.
-  Future<void> speak(String text) => _speech.speak(text);
+  /// The serialization point of speech: every [speak] call appends one link to
+  /// this chain, so playback order equals call order — the same idiom
+  /// `dart:async` chains use, where each call captures the current future and
+  /// stores the new link back. The chain is never left broken by a failure, so
+  /// the sentence behind a failed one still plays.
+  Future<void> _speechChain = Future<void>.value();
+
+  /// Utterances requested but not yet finished playing. It exists only to make
+  /// the serialization observable: a call that arrives while this is non-zero
+  /// is queued behind one that is still playing.
+  int _speechPending = 0;
+
+  /// Speaks [text] through the pinned offline voice, one sentence at a time and
+  /// in call order.
+  ///
+  /// Measured on `TFY-LX3` during `T15`'s verification: the conversation issued
+  /// the resolving cue (`12:41:56.203`) and the sentence that settles right
+  /// behind it (`12:41:56.295`) milliseconds apart. The `[umlive][tts]` lines
+  /// showed `kind=speak result=failed` for the second call and a single
+  /// `result=started` 1.3 s later — the plugin (`flutter_tts` with
+  /// `awaitSpeakCompletion(true)`, `QUEUE_FLUSH`) answers `0` for any `speak`
+  /// that arrives while another one is playing, which the platform layer reports
+  /// as a failure under `speak()`'s completion-driven result. The cue was heard
+  /// and **the sentence that says the write is queued was never spoken**, which
+  /// breaks `FR-MD03` and the conversation's own contract that every settled
+  /// sentence is spoken.
+  ///
+  /// The rule this enforces: the app speaks in order, and a sentence is never
+  /// dropped because another one is still playing. Each call appends one link
+  /// to [_speechChain] and completes when *this* sentence has finished playing;
+  /// a failure is swallowed into a `tts` log line, never into a broken chain,
+  /// because the next sentence still has to play.
+  @override
+  Future<void> speak(String text) {
+    if (_speechPending > 0) {
+      logEvent('tts', {
+        'kind': 'queued',
+        'length': text.length,
+        'pending': true,
+      });
+    }
+    _speechPending += 1;
+
+    // Appending is the serialization: this link does not begin until every
+    // sentence before it has finished playing, and the next call waits on it.
+    final spoken = _speechChain.then((_) async {
+      try {
+        await _speech.speak(text);
+      } on Object catch (error) {
+        logEvent('tts', {
+          'kind': 'speak_failed',
+          'error': error.runtimeType.toString(),
+        });
+      } finally {
+        _speechPending -= 1;
+      }
+    });
+
+    _speechChain = spoken;
+    return spoken;
+  }
 
   @override
   void dispose() {

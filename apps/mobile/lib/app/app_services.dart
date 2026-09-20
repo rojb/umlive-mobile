@@ -69,16 +69,24 @@ class AppServices {
       'stored': connection.hasStoredProfile,
       'reachability': connection.reachability.name,
     });
+    final voice = VoiceController();
     return AppServices(
       database: database,
       profiles: profiles,
       registry: registry,
       outbox: outbox,
       connection: connection,
-      voice: VoiceController(),
+      voice: voice,
       conversation: ConversationController(
         connection,
         resolver: const DeterministicOperationResolver(),
+        // The conversation speaks through the app's **one** [VoiceController],
+        // not through a second object and not through the TTS engine directly:
+        // there is one engine, one pinned offline `es-US` voice and one place
+        // that knows synthesis is unavailable, and this is it. The
+        // conversation only sees the `SpeechSink` port, so it can say a
+        // sentence without knowing any of that.
+        speech: voice,
       ),
     );
   }
