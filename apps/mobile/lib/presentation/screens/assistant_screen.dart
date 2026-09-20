@@ -30,8 +30,55 @@ import '../widgets/voice_status_banner.dart';
 /// chronological turns and no longer keeps any state of its own. Resolving a
 /// turn is still not this screen's job — `T12`/`T13` fill that in behind the
 /// same [ConversationController].
-class AssistantScreen extends StatelessWidget {
+///
+/// T12b made the list follow the newest turn. The answer is the point of the
+/// turn, and a list that does not move leaves it below the fold: the operator
+/// sees their own words and no reply, which reads as the app having done
+/// nothing. `T13`'s read-back and confirmation, `T15`'s acknowledgement and
+/// `T18`'s queue reports all land in the same list.
+class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
+
+  @override
+  State<AssistantScreen> createState() => _AssistantScreenState();
+}
+
+class _AssistantScreenState extends State<AssistantScreen> {
+  /// Drives the conversation list to its bottom (`T12b`).
+  final ScrollController _conversationScroll = ScrollController();
+
+  /// The last conversation state this screen followed, as `count|newest text`.
+  ///
+  /// The turn count alone is not enough: resolving a turn *replaces* the
+  /// pending bubble with the answer, so the list does not grow at the one
+  /// moment the operator is waiting for it (`T11`'s lifecycle). The newest
+  /// turn's text changes exactly then, which is why it is part of the key.
+  String _followedKey = '';
+
+  @override
+  void dispose() {
+    _conversationScroll.dispose();
+    super.dispose();
+  }
+
+  /// Scrolls to the newest turn whenever the conversation changed.
+  ///
+  /// The UX spec's Assistant composition is explicit — turns newest at the
+  /// bottom, **auto-scrolled** — and without this an answer lands below the
+  /// fold and stays invisible until the list is swiped by hand, which reads
+  /// as the app having done nothing. A jump rather than an animation: motion
+  /// in this app reports state and never decorates, and a jump cannot fight a
+  /// scroll the operator started.
+  void _followNewestTurn(String key) {
+    if (key == _followedKey) return;
+    _followedKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_conversationScroll.hasClients) return;
+      _conversationScroll.jumpTo(
+        _conversationScroll.position.maxScrollExtent,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +162,22 @@ class AssistantScreen extends StatelessWidget {
                         );
                       }
                       final turns = conversation.turns;
+                      // The key is the turn count plus the newest turn's text: the text is
+                      // what changes when a pending turn settles into its answer, and the
+                      // count is what changes when a turn is added. The call is registered
+                      // after every build and does nothing unless the key changed; the jump
+                      // itself runs post-frame, against a laid-out list, so
+                      // `maxScrollExtent` is read at the only moment it is correct — at any
+                      // font scale (`FR-MG06`).
+                      final newestText = turns.isEmpty
+                          ? ''
+                          : switch (turns.last) {
+                              UserTurn(:final text) => text,
+                              AssistantTurn(:final text) => text,
+                            };
+                      _followNewestTurn('${turns.length}|$newestText');
                       return SingleChildScrollView(
+                        controller: _conversationScroll,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [

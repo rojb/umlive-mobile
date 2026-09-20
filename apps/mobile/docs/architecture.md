@@ -521,3 +521,38 @@ path an utterance takes.
   only its length, the discipline `T11` established. Eleven turns exercised on
   `TFY-LX3` make up the evidence, and the log line and the written reply agreed
   on every one of them.
+
+## 15. The conversation surface (T11, T12b)
+
+- **The turn list is the whole of the conversation state.**
+  `ConversationController` owns a chronological `List<ConversationTurn>`; the
+  greeting is `turns.first` rather than a widget above the list, and every submit
+  adds a user turn plus a pending assistant turn that is later *replaced* by its
+  answer (`T11`). Nothing about the conversation is persisted — there is no table
+  for it, and a cold start begins with the greeting again.
+- **The list follows the newest turn** (`T12b`). `assistant_screen.dart` owns a
+  `ScrollController` on the conversation `SingleChildScrollView` and jumps it to
+  `maxScrollExtent` in a post-frame callback whenever the follow key changes. The
+  key is `"<turn count>|<newest turn text>"`, and the text is the part that
+  matters: resolving *replaces* the pending bubble, so the list does not grow at
+  the one moment the operator is waiting for the answer. A jump, not an
+  animation — motion reports state in this app and never decorates (UX spec,
+  "Motion rules").
+- **Why it is a task of its own.** `T12`'s device verification found the answer
+  landing below the fold: the `uiautomator` dump was missing the turn until the
+  list was swiped by hand, which reads as the app having done nothing. That is
+  presentation, not resolution, so it shipped as its own work unit before `T13` —
+  whose read-back and confirmation, and `T15`'s acknowledgement and `T18`'s queue
+  reports, all land in the same list.
+- **Reading the handset for verification.** Flutter exposes conversation strings
+  to `uiautomator` as `content-desc`, **not** as `text=`: only the input
+  `EditText` carries `text=`, so a check that greps for the reply in `text=`
+  finds nothing and reports a false failure. Measured on `TFY-LX3` with four
+  consecutive turns: every newest reply inside the list area with no swipe or
+  scroll command issued, every earlier turn moved up by at least 316 px, and the
+  new reply landing in the same screen slot each time.
+- **One instrument caveat, recorded so it is not mistaken for behaviour.** A dump
+  taken immediately after `adb install -r` plus `am start` can still show the
+  *previous* process's turns; the new process replaces them with the greeting
+  within about 30 s. Since turns are not persisted anywhere, history appearing
+  after a reinstall is a stale window, not restored state.
