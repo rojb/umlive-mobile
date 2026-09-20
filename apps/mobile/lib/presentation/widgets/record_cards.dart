@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../conversation/spanish_language.dart';
 import '../../conversation/turn.dart';
 import '../../l10n/app_localizations.dart';
 import '../../openapi/registry.dart';
@@ -24,12 +25,34 @@ import '../../theme/tokens.dart';
 /// A zero-record answer draws **nothing**: the count is the turn's sentence
 /// (`T20`), and an empty card area under it would only repeat that with
 /// whitespace.
+///
+/// **The stack is labelled for the accessibility layer** (`T24`, `FR-MG03`).
+/// A collection reaches the screen as up to twenty cards, each one a column of
+/// label/value nodes; with no label, a screen reader walks a dozen value nodes
+/// and is never told what they belong to or how many there are. The group
+/// therefore carries one `Semantics` label naming the entity in the registry's
+/// own plural and the number of cards it renders, and each card carries its
+/// position in that group. Both are **labels on top of the contents**, not
+/// replacements: the field rows inside a card stay readable, because that is
+/// the data the operator came for (`T24` is not a licence to relabel the app).
+///
+/// The entity is passed in rather than derived here: the card knows the records
+/// and their fields, and the caller is the only place that resolved the
+/// operation they came from against the registry (`FR-MC07`).
 class RecordCards extends StatelessWidget {
-  const RecordCards({super.key, required this.result});
+  const RecordCards({super.key, required this.result, this.entityName});
 
   /// What the read returned: the records, and the entity's readable fields in
   /// response-schema order.
   final TurnResult result;
+
+  /// The entity the records came from, in the registry's own sentence-case
+  /// spelling (`cliente`, `dirección`), or null when it cannot be named — an
+  /// operation the current registry no longer publishes, or a turn with no
+  /// evidence to resolve. Null means the group is not labelled at all, and each
+  /// card still says its position: an invented entity word would be worse than
+  /// no word (`FR-MC07`).
+  final String? entityName;
 
   /// How many records are rendered before the rest are summarised in one line.
   ///
@@ -51,13 +74,18 @@ class RecordCards extends StatelessWidget {
     final truncated = records.length > maxCards;
     final shown = truncated ? maxCards : records.length;
 
-    return Column(
+    final cards = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         for (var index = 0; index < shown; index++) ...[
           if (index > 0) const SizedBox(height: AppSpacing.sm),
-          _RecordCard(record: records[index], fields: result.fields),
+          _RecordCard(
+            record: records[index],
+            fields: result.fields,
+            position: index + 1,
+            total: shown,
+          ),
         ],
         if (truncated) ...[
           const SizedBox(height: AppSpacing.sm),
@@ -69,6 +97,24 @@ class RecordCards extends StatelessWidget {
           ),
         ],
       ],
+    );
+
+    final entity = entityName;
+    // No entity to name means no group label: the cards keep their own position
+    // labels, and the app does not invent a word the registry did not supply.
+    if (entity == null) return cards;
+
+    return Semantics(
+      container: true,
+      // The plural rule is the same one the count answer uses, so the app has
+      // exactly one definition of how an entity's name grows a syllable
+      // (`spanish_language.dart`).
+      label: l10n.recordCardsGroupSemantics(
+        shown,
+        entity,
+        pluralizeSpanishNoun(entity),
+      ),
+      child: cards,
     );
   }
 }
@@ -85,14 +131,29 @@ class RecordCards extends StatelessWidget {
 /// below it, and two records of the same entity would stop being comparable at
 /// a glance. An absent field and a `null` value render the same way, because to
 /// an operator they are the same fact: the backend does not carry that value.
+///
+/// The card carries its position as a `Semantics` label (`T24`), so the reader
+/// who entered a labelled group can tell one card from the next. The rows
+/// inside stay readable underneath it.
 class _RecordCard extends StatelessWidget {
-  const _RecordCard({required this.record, required this.fields});
+  const _RecordCard({
+    required this.record,
+    required this.fields,
+    required this.position,
+    required this.total,
+  });
 
   /// The decoded JSON object, exactly as the backend returned it.
   final Map<String, Object?> record;
 
   /// The entity's readable fields, in response-schema order.
   final List<FieldDescriptor> fields;
+
+  /// This card's position in the group, counting from one.
+  final int position;
+
+  /// How many cards the group renders.
+  final int total;
 
   @override
   Widget build(BuildContext context) {
@@ -125,22 +186,26 @@ class _RecordCard extends StatelessWidget {
     // this record without printing JSON.
     if (rows.isEmpty) return const SizedBox.shrink();
 
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadii.cardSmallAll,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var index = 0; index < rows.length; index++) ...[
-            if (index > 0) const SizedBox(height: AppSpacing.xs),
-            rows[index],
+    return Semantics(
+      container: true,
+      label: l10n.recordCardSemantics(position, total),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadii.cardSmallAll,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < rows.length; index++) ...[
+              if (index > 0) const SizedBox(height: AppSpacing.xs),
+              rows[index],
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -180,7 +245,12 @@ class _RecordCard extends StatelessWidget {
 ///
 /// Both halves share the row and both wrap: the layout never truncates a value
 /// with an ellipsis, so the largest font scale grows the card instead of
-/// clipping what the backend returned (`FR-MG06`, checked by `T24`).
+/// clipping what the backend returned (`FR-MG06`, applied by `T24`). The two
+/// `Expanded`s are what makes that hold at every text scale: there is no fixed
+/// height anywhere in this row and no `TextOverflow` on either half, so the
+/// worst case is a taller card, never a clipped word and never an overflow.
+/// A long schema name such as `códigoPostal` therefore wraps inside its own
+/// column instead of pushing the value out of the card.
 class _FieldRow extends StatelessWidget {
   const _FieldRow({
     required this.label,

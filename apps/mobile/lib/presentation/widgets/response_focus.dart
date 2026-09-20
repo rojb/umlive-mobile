@@ -30,6 +30,15 @@ import '../../theme/tokens.dart';
 /// list above keeps the history, `ConversationController` removes that turn
 /// while a write is in flight, and the exclusive surface is this one. It renders
 /// nothing outside a write in progress, so an ordinary read never pays for it.
+///
+/// **The largest system font scale is a layout requirement here, not a
+/// hope** (`FR-MG06`, applied by `T24`). Both controls carry two-word Spanish
+/// labels at [AppTextSizes.chip] — *Cancelar* and *Confirmar* — and at the
+/// scale's maximum a `Row` of the two of them overflows the band instead of
+/// making room. They are therefore laid out in a `Wrap`: one line while they
+/// fit, which is the whole comfortable range, and the second control on its own
+/// line when they do not. Nothing here has a fixed height and no label is ever
+/// ellipsised, so the band grows instead of clipping.
 class ResponseFocus extends StatelessWidget {
   const ResponseFocus({
     super.key,
@@ -145,18 +154,26 @@ class ResponseFocus extends StatelessWidget {
             ],
             if (confirming) ...[
               const SizedBox(height: AppSpacing.md),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              // Unequal weight, and no autofocus anywhere: the committing
+              // control is never pre-selected (UX spec Pass 3). Voice
+              // confirmation is accepted as well, because the control submits
+              // the same utterance a person would say.
+              //
+              // A `Wrap` and not a `Row` for the font-scale rule stated on the
+              // class: at the largest system text scale the committing label is
+              // the wider of the two and it is the one that no longer fits
+              // beside *Cancelar*. Wrapping keeps the order — so the committing
+              // control stays last and stays second in the reading order — and
+              // keeps both controls reachable with `FR-MG02`'s one hand.
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
                 children: [
-                  // Unequal weight, and no autofocus anywhere: the committing
-                  // control is never pre-selected (UX spec Pass 3). Voice
-                  // confirmation is accepted as well, because the control
-                  // submits the same utterance a person would say.
                   TextButton(
                     onPressed: onCancel,
                     child: Text(l10n.conversationWriteCancelAction),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
                   FilledButton(
                     onPressed: onConfirm,
                     child: Text(l10n.conversationWriteConfirmAction),
@@ -171,6 +188,10 @@ class ResponseFocus extends StatelessWidget {
               // to confirm until the record is complete and read back
               // (`FR-MC03`) — and this control submits the same utterance a
               // person would say, exactly like its confirming counterpart.
+              //
+              // It stays a `Row` because a single control cannot overflow one:
+              // the button's own label wraps inside whatever width the band
+              // gives it (`FR-MG06`).
               const SizedBox(height: AppSpacing.md),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,

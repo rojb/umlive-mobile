@@ -5,6 +5,7 @@ import '../../conversation/turn.dart';
 import '../../l10n/app_localizations.dart';
 import '../../net/reachability.dart';
 import '../../theme/tokens.dart';
+import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/capture_section.dart';
@@ -279,9 +280,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
 ///
 /// The sealed hierarchy in `turn.dart` forces this `switch` to cover both
 /// cases; adding a third turn kind later would fail to compile here until it
-/// is handled. Turn status is carried on [AssistantTurn] (`T14`):
-/// [TurnStatus.queued] gets its own mark below, and the remaining states get
-/// their visual treatment with the accessibility pass (`T24`, `FR-MG04`).
+/// is handled.
 class _TurnBubble extends StatelessWidget {
   const _TurnBubble({required this.turn});
 
@@ -316,12 +315,23 @@ class _TurnBubble extends StatelessWidget {
 /// One assistant turn. The user's bubbles invert to
 /// [AppColors.userBubble]; assistant turns stay on the low-contrast surface.
 ///
-/// A [TurnStatus.queued] turn marks itself with an icon **and** the word
-/// `l10n.turnQueuedLabel` above its text, because the UX spec forbids carrying
-/// this state in colour alone (`FR-MG04`), and gives the bubble a border so the
-/// mark survives even for someone who does not read the icon. A queued turn
-/// that looks like a result is the app lying about durability, which is the one
-/// thing the queue exists to prevent (architecture §4).
+/// **The turn typology, and why every marked kind carries a word** (`T24`,
+/// `FR-MG04`). The UX spec fixes five kinds of turn — the *user utterance* (the
+/// inverted bubble, which needs no mark: it is the operator's own words), the
+/// *assistant answer* (this bubble, plain), the *result card group* (the cards
+/// below the bubble), the *queued promise*, and the *not-understood* refusal —
+/// and requires them to stay distinguishable **without colour**: Pass 1 says the
+/// three outcomes "never share a visual treatment", and the visual constraints
+/// say the three states must be distinguishable "without colour alone". Colour
+/// is therefore never the signal. A [TurnStatus.queued] turn marks itself with a
+/// schedule icon **and** the word `l10n.turnQueuedLabel`, plus a hairline border;
+/// a [TurnStatus.failed] turn marks itself with an error icon **and** the word
+/// `l10n.turnFailedLabel`. Read the three outcomes in greyscale and they still
+/// separate: *En cola*, the answer, *Falló*. A queued turn that looks like a
+/// result is the app lying about durability, which is the one thing the queue
+/// exists to prevent (architecture §4), and the failed turn rendered as
+/// **nothing at all** until `T24` — the state was carried by the sentence alone
+/// and by no mark a person could scan for.
 ///
 /// `T21` renders the turn's [TurnResult] as cards **below the bubble and
 /// outside it**: the bubble is the assistant's voice, and a record card is the
@@ -356,9 +366,19 @@ class _AssistantTurn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final queued = status == TurnStatus.queued;
     final records = result;
     final technical = evidence;
+    // The mark a settled non-answer carries, as the pair the typology asks for:
+    // a word and the icon that word belongs to. An ordinary answer gets `null`,
+    // because it is the kind that needs no word above its sentence, and a
+    // pending turn carries its own caption instead.
+    final (IconData, String)? mark = switch (status) {
+      TurnStatus.queued => (Icons.schedule_outlined, l10n.turnQueuedLabel),
+      TurnStatus.failed => (Icons.error_outline, l10n.turnFailedLabel),
+      TurnStatus.pending || TurnStatus.resolved => null,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -377,22 +397,8 @@ class _AssistantTurn extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (queued) ...[
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.schedule_outlined,
-                      size: 16,
-                      color: AppColors.textMuted,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      AppLocalizations.of(context).turnQueuedLabel,
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                  ],
-                ),
+              if (mark != null) ...[
+                _TurnStatusMark(icon: mark.$1, label: mark.$2),
                 const SizedBox(height: AppSpacing.xs),
               ],
               Text(text, style: Theme.of(context).textTheme.bodyMedium),
@@ -401,7 +407,14 @@ class _AssistantTurn extends StatelessWidget {
         ),
         if (records != null && records.records.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.sm),
-          RecordCards(result: records),
+          // The group's label needs the entity's own word, and the registry is
+          // the only place one comes from (`FR-MC07`). `T24` resolves it here,
+          // the same way the queue screen resolves the word for an item's own
+          // label, rather than teaching the card widget to read the registry.
+          RecordCards(
+            result: records,
+            entityName: _entityNameFor(context, technical),
+          ),
         ],
         // T23: the machinery, under the sentence and under the cards, and only
         // while the operator asked for it. The builder listens to the mode
@@ -418,6 +431,84 @@ class _AssistantTurn extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  /// The entity whose `operationKeys` carries [evidence]'s operation, in the
+  /// registry's own sentence-case spelling, or null when it cannot be named.
+  ///
+  /// The same lookup the queue screen performs for an item's own label, and the
+  /// same limit: null means no entity of the **current** registry publishes that
+  /// operation any more, and an entity word the registry cannot supply is never
+  /// invented (`FR-MC07`). It is a free read — `T21`'s evidence was captured
+  /// when the call was made, and the registry is the object this screen already
+  /// listens to.
+  static String? _entityNameFor(
+    BuildContext context,
+    OperationEvidence? evidence,
+  ) {
+    final operationKey = evidence?.operationKey;
+    if (operationKey == null) return null;
+    final registry = AppScope.of(context).connection.apiRegistry;
+    if (registry == null) return null;
+    for (final entity in registry.entities) {
+      if (entity.operationKeys.contains(operationKey)) {
+        return lowerFirst(entity.name);
+      }
+    }
+    return null;
+  }
+}
+
+/// The mark a queued or failed turn carries above its sentence: an outline icon
+/// **and** a word (`T24`, `FR-MG04`).
+///
+/// One widget for both, because the rule is one rule: a state that is only a
+/// hue is a state a colour-blind operator cannot read, and the two states that
+/// are not an answer carry the two words the app already has for them — *En
+/// cola* and *Falló*. See [_AssistantTurn] for the whole typology.
+///
+/// **The colour is deliberately [AppColors.textMuted] for both marks, and it is
+/// supplementary.** [TurnStatus.failed] covers a real failure and an honest
+/// refusal alike — the resolver settles both as `failed` — and the UX spec gives
+/// the not-understood treatment "neither an error red nor a normal answer". A
+/// red word would claim the app knows which of the two this is, and it does not
+/// need to: the word and the icon already say it, in greyscale.
+///
+/// The semantics node carries **the word alone**. The icon is decorative and
+/// carries no label, and without [Semantics.excludeSemantics] the word would be
+/// announced twice — once as this node's label and once by the text inside it —
+/// which is the one place the accessibility layer would have heard it doubled.
+class _TurnStatusMark extends StatelessWidget {
+  const _TurnStatusMark({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: label,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: AppTextSizes.chip, color: AppColors.textMuted),
+          const SizedBox(width: AppSpacing.sm),
+          // Flexible and wrapping, never an ellipsis: the largest system font
+          // scale must be able to grow this mark onto a second line rather than
+          // clip the word that carries the whole state (`FR-MG06`).
+          Flexible(
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: AppColors.textMuted),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

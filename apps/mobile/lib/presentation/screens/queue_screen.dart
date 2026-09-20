@@ -218,13 +218,22 @@ class _QueueItemCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          // `FR-MG06`, applied by `T24`: the intent and the status chip are two
+          // text blocks side by side, and at the largest system font scale a
+          // `Row` of them either overflows or squeezes the intent into a column
+          // a few pixels wide. A `Wrap` reads the same at the comfortable scale
+          // — the intent at the start, the chip at the end of the line — and
+          // moves the chip onto its own line when the two no longer fit
+          // together, which is the case for a long intent such as *Borrado del
+          // registro 7 de cliente*. The order is preserved, so the chip stays
+          // after the intent in the reading order.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.start,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
             children: <Widget>[
-              Expanded(
-                child: Text(_intent(l10n), style: textTheme.titleMedium),
-              ),
-              const SizedBox(width: AppSpacing.sm),
+              Text(_intent(l10n), style: textTheme.titleMedium),
               _QueueStatusChip(status: item.status),
             ],
           ),
@@ -260,8 +269,17 @@ class _QueueItemCard extends StatelessWidget {
           // work the app still owes (UX spec Pass 5, *Draining*).
           if (!inFlight) ...<Widget>[
             const SizedBox(height: AppSpacing.sm),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            // `FR-MG06`, applied by `T24`: two labelled controls side by side —
+            // *Reintentar* and *Descartar del todo*, each with its icon — add up
+            // to more than the card is wide at the largest system font scale,
+            // and a `Row` would paint an overflow stripe over the card. A `Wrap`
+            // keeps them on one line while they fit and stacks them when they do
+            // not, so neither label is clipped and neither control leaves the
+            // card.
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
               children: <Widget>[
                 if (failed)
                   TextButton.icon(
@@ -307,6 +325,13 @@ class _QueueItemCard extends StatelessWidget {
 /// `FR-MG04` and the UX spec forbid carrying a state in colour alone, and the
 /// three queue states differ in copy — *En cola*, *Enviando…*, *Falló* — so
 /// they stay distinguishable to an operator who cannot see the chip's tint.
+///
+/// `T24` labels the chip for the accessibility layer: the icon is decorative
+/// and the word is the state, so the node carries the word alone
+/// ([Semantics.excludeSemantics]) instead of letting a reader hear the same
+/// word twice. The label text is `Flexible` and wraps, so the largest system
+/// font scale grows the chip onto a second line rather than clipping the word
+/// or overflowing the card (`FR-MG06`).
 class _QueueStatusChip extends StatelessWidget {
   const _QueueStatusChip({required this.status});
 
@@ -334,22 +359,32 @@ class _QueueStatusChip extends StatelessWidget {
       ),
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: AppRadii.pillAll,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(icon, size: AppTextSizes.chip, color: colour),
-          const SizedBox(width: AppSpacing.sm),
-          Text(label, style: textTheme.labelLarge?.copyWith(color: colour)),
-        ],
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: AppRadii.pillAll,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: AppTextSizes.chip, color: colour),
+            const SizedBox(width: AppSpacing.sm),
+            Flexible(
+              child: Text(
+                label,
+                style: textTheme.labelLarge?.copyWith(color: colour),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

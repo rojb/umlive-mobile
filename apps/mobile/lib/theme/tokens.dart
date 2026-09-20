@@ -40,8 +40,30 @@ abstract final class AppColors {
   /// Secondary copy, and the *unconfirmed tail* of a live transcript.
   static const Color textMuted = Color(0xFF8FA3A0);
 
-  /// Glyphs on the accent fill.
-  static const Color onAccent = Color(0xFFFFFFFF);
+  /// Text and glyphs on a light fill — the accent and the destructive mark.
+  ///
+  /// **This is the palette's dark ink, not the reference's white, and the
+  /// arithmetic is why** (`T24`, the accessibility pass). White on [accent]
+  /// measures **2.56:1** and white on [danger] measures **2.78:1**, both far
+  /// under the 4.5:1 the PRD and the UX spec require of text (PRD-MOBILE.md
+  /// §6.G `FR-MG04`; UX spec, "UX constraints", 6). The dark ink measures
+  /// **7.25:1** on [accent] and **6.70:1** on [danger], so what fails is the
+  /// white, not the emerald: [accent] is left exactly as the reference reads
+  /// it, because it *passes* as a foreground (6.26:1 on [surface]) and
+  /// darkening it far enough to carry white text would push every
+  /// accent-coloured label in the app under 4.5:1 instead.
+  ///
+  /// One token, because the failing pair is one pair — ink on a light fill —
+  /// and the scheme reaches both of them through it: `onPrimary` is the
+  /// [FilledButton] label on the emerald fill and `onError` is the Material
+  /// [Badge] count on [danger] (the pair the app-bar queue action draws).
+  /// Nothing renders a white glyph on an accent fill, so nothing needs the
+  /// reference's white any more: the capture orb is its own gradient
+  /// ([orbTop] to [orbBottom]) and the send glyph is accent on [surface].
+  ///
+  /// The value is [bg] itself, deliberately: this palette has one dark ink,
+  /// which is also what [onUserBubble] names for the user's white surface.
+  static const Color onAccent = Color(0xFF0A1513);
 
   /// The user's own messages are the only pure-white surface in the app.
   static const Color userBubble = Color(0xFFFFFFFF);

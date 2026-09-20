@@ -1187,3 +1187,52 @@ target is never inferred.
   evaluator: the operator says a sentence, and the screen shows the verb, the path,
   the status, the latency and the document the operation was derived from — evidence
   rather than an assertion.
+
+## 29. Accessibility: words, not hues, and numbers instead of estimates (T24)
+
+- **Every outcome state carries a word.** A queued turn shows an icon and *En cola*;
+  a failed turn now shows an icon and *Falló*. Both marks are one widget, both render
+  in `textMuted`, and neither depends on a hue — which is also why the *not
+  understood* treatment is not painted red: `TurnStatus.failed` covers a real failure
+  and an honest refusal, and the UX spec gives that state "neither an error red nor a
+  normal answer". Measured: both words are in the tree, and both were sampled as
+  exactly `#8FA3A0` glyph pixels.
+- **The contrast fix was arithmetic first and pixels second.** Every text-on-background
+  pair the app renders was computed from `tokens.dart` by WCAG relative luminance, and
+  two pairs failed: white on the accent fill (2.56:1) and white on the danger fill
+  (2.78:1) — the second one being the app-bar queue badge through
+  `colorScheme.error`/`onError`. Both are the *same* pair, ink on a light fill, and
+  both are named by one token, so the fix is one value: `onAccent` went from `#FFFFFF`
+  to `#0A1513`. `accent` itself was left alone on purpose — it passes as a foreground
+  (6.26:1 on `surface`, 7.25:1 on `bg`), and darkening it enough to carry white text
+  would have pushed every accent-coloured label under the line instead. Measured on a
+  screenshot: the committing control's fill is `#14B87E`, its label ink `#0A1513`, and
+  the ratio is **7.248:1**.
+- **A real overflow was found by the same arithmetic, at the normal scale.** The queue
+  item's controls were in a `Row`: at this device's 360dp content width, *Reintentar*
+  plus *Descartar del todo* need 288.04dp against 280dp available — it already
+  overflowed by 8dp before anyone set a font scale. The confirmation band's pair
+  overflowed for the same reason at 2.0. Both are `Wrap`s now, and the queue's chip row
+  wraps too, so the layout is width-independent instead of accidentally fitting.
+- **The largest font scale is a measurement, not a hope.** With `font_scale 2.0` the
+  conversation area keeps `[61,242][1019,1386]`, the greeting, a submitted answer, both
+  band controls and both card labels are present and complete, no dump contains an
+  ellipsis, and the whole window greps to **zero** `RenderFlex`/`overflowed` lines.
+  A squeeze that was feared at the largest scale — the conversation list collapsing to
+  nothing under the fixed capture control — did not happen on this device; the fix for
+  it would be a restructure of the body's scroll ownership, and it stays a documented
+  risk rather than a guess.
+- **Two audits, done and reported complete** (`FR-MG03`). Every sentence the app speaks
+  also exists as text: the settled sentences are the turn itself, the ask/read-back
+  sentences are the band, and the microphone rationale is literally the same string on
+  both channels. Every voice action has a touch equivalent: the orb toggles capture,
+  the text field is the typed equivalent of speaking, and *Confirmar*/*Cancelar* submit
+  the same utterances a person would say. One spoken string has no on-screen twin — the
+  diagnostics self-check's own phrase, which is a verification input and not
+  conversation output — and one cue is a paraphrase of the pending caption rather than
+  the same words; both are recorded rather than papered over.
+- **Two limitations the pass did not remove**, so they are not rediscovered as bugs.
+  The app-bar reachability pill truncates a long label at the largest scale (its full
+  sentence is the tooltip and, in every state but *connected*, the block under the app
+  bar); and the text fallback's send glyph keeps the accent colour while the control is
+  disabled, which is a colour-state wart rather than a contrast failure.

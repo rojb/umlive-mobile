@@ -686,6 +686,35 @@
     }
   },
 
+  "recordCardsGroupSemantics": "{count, plural, =1{1 registro de {entity}.} other{{count} registros de {entities}.}}",
+  "@recordCardsGroupSemantics": {
+    "description": "T24, FR-MG03: the screen-reader label of the group of cards a read returned. A collection reaches the screen as a stack of cards, each one a column of value nodes, and with no label a screen reader walks a dozen of those value nodes without ever being told what they belong to. The label names the entity in the registry's own plural — the same plural rule the count answer uses (conversationCountAnswer), because the app keeps one definition of it — and how many records the group renders, which is the number of cards below it and not the number the backend returned; the truncation line states the rest when the collection was capped. It is a label, not a replacement: the field rows inside each card stay readable underneath it. The entity is interpolated in its original UML spelling (cliente, dirección), never an app-invented name. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "entity": {
+        "type": "String"
+      },
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "recordCardSemantics": "Registro {index} de {total}.",
+  "@recordCardSemantics": {
+    "description": "T24, FR-MG03: the screen-reader label of one record card, so each card says its position in the group the reader has just entered — the group label carries the entity, this one carries the position, and together they say what the card is instead of leaving the reader with a column of unlabelled values. It labels the card; it does not hide the field rows inside it, which stay readable underneath. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+
   "conversationNotUnderstoodNoEntity": "No reconocí ninguna entidad conocida en esa indicación. Conozco: {entities}.",
   "@conversationNotUnderstoodNoEntity": {
     "description": "T12: refusal when no entity the registry knows was named. The vocabulary comes from the registry (FR-MC07), which is why it can name what it does know instead of only what it missed. Neutral register, no tuteo or voseo.",
@@ -886,6 +915,11 @@
   "turnQueuedLabel": "En cola",
   "@turnQueuedLabel": {
     "description": "T14: the word that travels with the schedule icon on a queued turn. The UX spec forbids carrying the queued state in colour alone, so the mark is an icon and this word together (FR-MG04, architecture §4)."
+  },
+
+  "turnFailedLabel": "Falló",
+  "@turnFailedLabel": {
+    "description": "T24, FR-MG04: the word that travels with the error_outline icon on a turn that could not be answered. The UX spec's turn typology has five kinds (user utterance, assistant answer, result card group, queued promise, not understood) and requires them to stay distinguishable without colour, which is why every marked kind carries a word and not only a hue: the queued promise already says 'En cola' and this is the third outcome state's word. It is deliberately the word the queue's failed state already uses (queueStatusFailed): one fact, told the same way on the conversation surface and in the queue. The sentence under the mark still says what specifically failed. Neutral register, no tuteo or voseo."
   },
 
   "conversationDeleteNoTarget": "No se puede eliminar un registro de {entity} sin saber cuál: hace falta indicar el identificador.",
