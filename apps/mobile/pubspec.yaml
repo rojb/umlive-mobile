@@ -41,6 +41,16 @@ dependencies:
     sdk: flutter
   intl: ^0.20.2
 
+  # Encrypted-at-rest storage for the base URL and the shared bearer token
+  # (FR-MA01). Neither ever reaches SQLite: see docs/architecture.md §5.
+  flutter_secure_storage: ^11.2.0
+
+  # On-device SQLite: the profile row plus the three tables later tasks fill
+  # (registry, outbox, read_cache), created together at schema version 1 so no
+  # migration is needed when they start writing.
+  sqflite: ^2.4.4
+  path: ^1.9.0
+
 dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

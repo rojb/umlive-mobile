@@ -17,7 +17,12 @@ abstract final class AppRoutes {
   static const String settings = '/settings';
 
   /// The app opens into the conversation, not into configuration (`FR-MG01`).
-  static const String initial = assistant;
+  ///
+  /// Unless there is nothing stored: a cold start with no backend lands on
+  /// Connect, because the conversation screen has nothing to talk to. The
+  /// decision reads the restored profile, never the network (`FR-MD01`).
+  static String initialFor({required bool hasStoredProfile}) =>
+      hasStoredProfile ? assistant : connect;
 
   /// Named-route table handed to `MaterialApp.routes`.
   static final Map<String, WidgetBuilder> table = <String, WidgetBuilder>{

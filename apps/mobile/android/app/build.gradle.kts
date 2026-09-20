@@ -4,13 +4,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Lowest API the on-device speech engine supports (PRD-MOBILE.md §10.2).
+// Lowest API the app supports.
+//
+// The floor comes from the product and from storage, not from the speech
+// engine: PRD-MOBILE.md §7 puts the product floor at Android 10 (API 29) — the
+// demo handset is API 33 — and `flutter_secure_storage` v11 declares minSdk 24,
+// which the manifest merger enforces. sherpa_onnx only asks for 23, so it is
+// not the binding constraint.
 //
 // Deliberately not `flutter.minSdkVersion`: Flutter 3.47 defaults it to 24, and
-// its MinSdkVersionMigration rewrites a literal `minSdk = 23` back to the
-// default on every build. Carrying the value in a named constant keeps the
-// requirement (23) intact across builds.
-val umliveMinSdk = 23
+// its MinSdkVersionMigration rewrites a bare literal back to the default on
+// every build. Carrying the value in a named constant keeps it intact across
+// builds.
+val umliveMinSdk = 24
 
 android {
     namespace = "com.umlive.voice"
@@ -24,7 +30,8 @@ android {
 
     defaultConfig {
         applicationId = "com.umlive.voice"
-        // sherpa_onnx requires API 23; the product targets Android 10+ (PRD §7).
+        // The product floor is Android 10 (PRD §7); secure storage raises it to
+        // API 24. The demo handset is API 33.
         minSdk = umliveMinSdk
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION

@@ -84,5 +84,170 @@
   "settingsBackendLabel": "Backend",
   "@settingsBackendLabel": {
     "description": "Label of the row that navigates to the Connect screen."
+  },
+
+  "connectTokenLabel": "Token compartido (opcional)",
+  "@connectTokenLabel": {
+    "description": "Label of the bearer token field. It is only revealed behind the advanced affordance (UX spec, Pass 2: the token is secondary, needed once and typed rarely)."
+  },
+
+  "connectTokenHint": "Token del backend",
+  "@connectTokenHint": {
+    "description": "Placeholder inside the token field."
+  },
+
+  "connectTokenHelp": "Solo se necesita para los backends protegidos con token compartido. Se guarda cifrado en el teléfono.",
+  "@connectTokenHelp": {
+    "description": "Explains what the token is for and that it is stored encrypted at rest (FR-MA01)."
+  },
+
+  "connectAdvancedReveal": "Opciones avanzadas",
+  "@connectAdvancedReveal": {
+    "description": "Affordance that reveals the token field. Collapsed by default so the first launch asks for one thing only (UX spec, Pass 4)."
+  },
+
+  "connectAdvancedHide": "Ocultar opciones avanzadas",
+  "@connectAdvancedHide": {
+    "description": "Same affordance once the token field is visible."
+  },
+
+  "connectSubmit": "Conectar",
+  "@connectSubmit": {
+    "description": "The one action of the Connect screen: normalize, store and probe the address."
+  },
+
+  "connectProgress": "Buscando la API…",
+  "@connectProgress": {
+    "description": "Progress line of the Connection Loading state while the description path is being probed."
+  },
+
+  "connectLoadingEcho": "Dirección: {address}",
+  "@connectLoadingEcho": {
+    "description": "Echoes the address being probed, so the Loading state names what it is reaching.",
+    "placeholders": {
+      "address": {
+        "type": "String"
+      }
+    }
+  },
+
+  "connectCancel": "Cancelar",
+  "@connectCancel": {
+    "description": "Cancels the probe in flight. The Connection Loading state must always offer it."
+  },
+
+  "connectCleartextWarning": "La conexión con {host} no está cifrada (HTTP). Se acepta porque la dirección es local o privada.",
+  "@connectCleartextWarning": {
+    "description": "Visible warning shown whenever a cleartext HTTP address is accepted (PRD-MOBILE.md §7, 'Security — transport'). It is never shown as a colour alone: it travels with a lock icon.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+
+  "addressProblemEmpty": "Ingrese la dirección del backend.",
+  "@addressProblemEmpty": {
+    "description": "Refusal when the address field is empty. Impersonal register, like the rest of the copy."
+  },
+
+  "addressProblemMalformed": "Escriba solo el host y, si hace falta, el puerto. Por ejemplo: https://mi-backend.example.com o 192.168.1.40:8080.",
+  "@addressProblemMalformed": {
+    "description": "Refusal when the text is not `host` or `host:port` after the scheme: it carries a path, a query or is not a URI authority at all."
+  },
+
+  "addressProblemUnsupportedScheme": "Solo se admiten direcciones http y https.",
+  "@addressProblemUnsupportedScheme": {
+    "description": "Refusal for any scheme other than http or https."
+  },
+
+  "addressProblemInvalidPort": "El puerto de la dirección no es válido.",
+  "@addressProblemInvalidPort": {
+    "description": "Refusal when a port is present but is not a number between 1 and 65535."
+  },
+
+  "addressProblemCleartextRefused": "No se acepta HTTP sin cifrado hacia una dirección pública: el tráfico viajaría sin protección. Use https, o una dirección local o privada.",
+  "@addressProblemCleartextRefused": {
+    "description": "Refusal of cleartext HTTP to a non-local host, stating why. The address is neither silently upgraded to https nor silently downgraded, so the sentence names the reason instead of a status."
+  },
+
+  "reachabilityProbingLabel": "Consultando",
+  "@reachabilityProbingLabel": {
+    "description": "Short label of the reachability indicator while a probe is in flight."
+  },
+
+  "reachabilityProbingSentence": "Se está consultando la descripción de la API del backend.",
+  "@reachabilityProbingSentence": {
+    "description": "Sentence of the reachability indicator while a probe is in flight."
+  },
+
+  "reachabilityNeverConnectedLabel": "Sin backend",
+  "@reachabilityNeverConnectedLabel": {
+    "description": "Reachability state: nothing configured yet (FR-MA05)."
+  },
+
+  "reachabilityNeverConnectedSentence": "Todavía no hay ningún backend conectado.",
+  "@reachabilityNeverConnectedSentence": {
+    "description": "Sentence of the never-connected reachability state."
+  },
+
+  "reachabilityConnectedLabel": "Conectado",
+  "@reachabilityConnectedLabel": {
+    "description": "Reachability state: 2xx from the description path."
+  },
+
+  "reachabilityConnectedSentence": "El backend respondió y publica su descripción de API.",
+  "@reachabilityConnectedSentence": {
+    "description": "Sentence of the connected reachability state. It says the backend answered, never that the radio is on (FR-MD01)."
+  },
+
+  "reachabilityMissingDescriptionLabel": "Sin descripción de API",
+  "@reachabilityMissingDescriptionLabel": {
+    "description": "Reachability state: 404 on the description path (FR-MA06)."
+  },
+
+  "reachabilityMissingDescriptionSentence": "El backend está en línea, pero no publica su descripción de API: se generó sin springdoc-openapi. Sin esa descripción no se pueden descubrir las operaciones del backend.",
+  "@reachabilityMissingDescriptionSentence": {
+    "description": "Sentence of the missing-description state. FR-MA06: it names the cause and never offers a guessed route."
+  },
+
+  "reachabilityUnhealthyLabel": "Backend con error",
+  "@reachabilityUnhealthyLabel": {
+    "description": "Reachability state: any non-2xx other than 404 on the description path."
+  },
+
+  "reachabilityUnhealthySentence": "El backend respondió con el código {status} en la ruta de la descripción de la API.",
+  "@reachabilityUnhealthySentence": {
+    "description": "Sentence of the reachable-but-unhealthy state, naming the status the backend answered with.",
+    "placeholders": {
+      "status": {
+        "type": "int"
+      }
+    }
+  },
+
+  "reachabilityUnhealthyNoStatusSentence": "El backend respondió con un error en la ruta de la descripción de la API.",
+  "@reachabilityUnhealthyNoStatusSentence": {
+    "description": "Fallback for the reachable-but-unhealthy state when no status is known, so the state always renders a sentence without interpolating an unknown number."
+  },
+
+  "reachabilityOfflineWithCacheLabel": "Sin conexión, con datos guardados",
+  "@reachabilityOfflineWithCacheLabel": {
+    "description": "Reachability state: the probe failed but a registry row exists for this profile. Cannot be reached before T4 persists a registry; the copy exists now so the state is complete."
+  },
+
+  "reachabilityOfflineWithCacheSentence": "No se pudo alcanzar el backend. Se trabaja con lo que se conoció en la última conexión.",
+  "@reachabilityOfflineWithCacheSentence": {
+    "description": "Sentence of the offline-with-cache state."
+  },
+
+  "reachabilityUnreachableLabel": "Sin conexión",
+  "@reachabilityUnreachableLabel": {
+    "description": "Reachability state: the probe failed and nothing is known about this backend."
+  },
+
+  "reachabilityUnreachableSentence": "No se pudo alcanzar el backend. Verifique que la dirección sea correcta y que el backend esté en marcha.",
+  "@reachabilityUnreachableSentence": {
+    "description": "Sentence of the unreachable state, naming the two things the user can act on."
   }
 }

@@ -200,3 +200,30 @@ Use this whenever a visual claim has to be proven rather than described. Read
 the physical device pixel size (1080 × 2388) to compute row offsets, not the
 logical size. Capture into the git-ignored `tmp/shots/`, never into a tracked
 path.
+
+## 10. State and services
+
+`lib/app/` is the composition root. It holds no feature of its own. T2 fixes
+this shape; later tasks extend it instead of inventing a parallel one.
+
+- `AppServices.bootstrap()` is called once, in `main()`, before the first frame.
+  It opens the database, builds the repositories and the controller, and
+  restores the stored profile. It is the only place that constructs them.
+- `AppScope` is an `InheritedWidget`; screens read dependencies with
+  `AppScope.of(context)`. No state-management package: `ChangeNotifier` plus
+  `ListenableBuilder` only.
+- `ConnectionController extends ChangeNotifier` (in `presentation/`) owns the
+  address, the profile id, the in-flight probe and the reachability state of
+  `FR-MA05`. It is the single owner of connection state; no screen probes.
+- Repositories are the only objects that touch `sqflite` or
+  `flutter_secure_storage`: `ProfileRepository` (the address and token as
+  secrets, the `profile` row) and `RegistryRepository` (the `registry` table;
+  T4 fills it).
+- `net/` holds the pure decisions — `BackendAddressParser` (normalization) and
+  `TransportPolicy` (cleartext allowed only for loopback and private ranges) —
+  and the impure `BackendProbe`, which is the only object that issues a request
+  before T3.
+- `core/log.dart` writes `[umlive][<area>] key=value` lines to `debugPrint`, so
+  `adb logcat -d | grep umlive` proves a transition without a screenshot.
+- `profile.base_url` is created by the fixed DDL but stays empty: the address
+  lives in `flutter_secure_storage`, never in SQLite (§5).
