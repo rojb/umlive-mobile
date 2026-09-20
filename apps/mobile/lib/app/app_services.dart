@@ -5,6 +5,7 @@ import '../data/app_database.dart';
 import '../data/profile_repository.dart';
 import '../data/registry_repository.dart';
 import '../presentation/connection_controller.dart';
+import '../voice/voice_controller.dart';
 
 /// Composition root: every long-lived object the app shares, built once.
 ///
@@ -17,12 +18,18 @@ class AppServices {
     required this.profiles,
     required this.registry,
     required this.connection,
+    required this.voice,
   });
 
   final AppDatabase database;
   final ProfileRepository profiles;
   final RegistryRepository registry;
   final ConnectionController connection;
+
+  /// The voice engine: one per app, built here like every other shared object.
+  /// Its model is provisioned by `main()` after the first frame, because
+  /// copying 126 MB out of the APK must not hold up startup.
+  final VoiceController voice;
 
   /// Opens storage, wires the repositories and restores the stored profile.
   ///
@@ -49,6 +56,7 @@ class AppServices {
       profiles: profiles,
       registry: registry,
       connection: connection,
+      voice: VoiceController(),
     );
   }
 }

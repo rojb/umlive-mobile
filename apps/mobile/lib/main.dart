@@ -8,6 +8,7 @@ import 'app/app_services.dart';
 import 'core/log.dart';
 import 'l10n/app_localizations.dart';
 import 'presentation/routes.dart';
+import 'presentation/widgets/voice_self_check_host.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -35,6 +36,12 @@ Future<void> main() async {
   // first frame so a network round trip never holds up startup. The app bar
   // shows the probe in progress and then the state it produced.
   unawaited(services.connection.probeStored());
+
+  // FR-MB01c/FR-MB03: the recognition model is provisioned out of the APK into
+  // a real directory after the first frame. It is local work, but 126 MB of it,
+  // so it runs behind the UI and the app states plainly that offline voice is
+  // not ready until it finishes.
+  unawaited(services.voice.initialize());
 }
 
 /// Root of the app.
@@ -69,6 +76,14 @@ class UmliveVoiceApp extends StatelessWidget {
           hasStoredProfile: services.connection.hasStoredProfile,
         ),
         routes: AppRoutes.table,
+        // The `builder` sits below the localizations, which is what lets the
+        // voice self-check speak a string from `AppLocalizations` instead of a
+        // literal. It renders nothing unless the `UMLIVE_VOICE_SELFCHECK`
+        // build flag asked for a verification run.
+        builder: (context, child) => VoiceSelfCheckOnLaunch(
+          utterance: AppLocalizations.of(context).voiceDebugUtterance,
+          child: child ?? const SizedBox.shrink(),
+        ),
       ),
     );
   }

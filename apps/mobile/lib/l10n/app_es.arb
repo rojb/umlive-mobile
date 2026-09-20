@@ -384,5 +384,153 @@
   "assistantGreetingNoOperations": "Hola, soy UMLive Voice. El backend no publica ninguna operación, así que todavía no hay nada que pueda hacer.",
   "@assistantGreetingNoOperations": {
     "description": "Assistant greeting when the description declares no operations. UX spec Pass 6: state that the backend has no operations instead of showing an empty conversation surface."
+  },
+
+  "voiceStatusChecking": "Se está comprobando el reconocimiento de voz sin conexión.",
+  "@voiceStatusChecking": {
+    "description": "Voice readiness banner while the app verifies that the bundled recognition model is present and usable (FR-MB03)."
+  },
+
+  "voiceStatusProvisioning": "Preparando el reconocimiento de voz sin conexión: {percent} %.",
+  "@voiceStatusProvisioning": {
+    "description": "Voice readiness banner while the model is being copied out of the APK into a real directory. FR-MB01c: the app states plainly that offline voice is unavailable until it completes, instead of degrading silently.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+
+  "voiceStatusUnavailableModel": "El reconocimiento de voz sin conexión no está disponible: esta instalación no incluye el modelo. Se debe reinstalar la aplicación desde una compilación completa.",
+  "@voiceStatusUnavailableModel": {
+    "description": "FR-MB03, loud failure: the asset is missing from the installed build. The way forward is a complete build, because the model ships inside the APK."
+  },
+
+  "voiceStatusUnavailableModelCorrupt": "El reconocimiento de voz sin conexión no está disponible: los archivos del modelo no coinciden con los esperados. Se debe reinstalar la aplicación.",
+  "@voiceStatusUnavailableModelCorrupt": {
+    "description": "FR-MB01b, loud failure: what was copied is not the model that was measured, so the recognizer is not built from it."
+  },
+
+  "voiceStatusUnavailableProvisioning": "El reconocimiento de voz sin conexión no está disponible: la preparación del modelo no se completó en este dispositivo.",
+  "@voiceStatusUnavailableProvisioning": {
+    "description": "FR-MB03, loud failure: the copy itself failed (no space, no permission, interrupted stream)."
+  },
+
+  "voiceStatusUnavailableRecognizer": "El reconocimiento de voz sin conexión no está disponible: el motor no pudo iniciarse en este dispositivo.",
+  "@voiceStatusUnavailableRecognizer": {
+    "description": "FR-MB01b, loud failure: usable model files existed but the native recognizer could not be built."
+  },
+
+  "voiceStatusUnavailableSpeech": "La síntesis de voz no está disponible sin conexión: no hay ninguna voz en español que no requiera conexión.",
+  "@voiceStatusUnavailableSpeech": {
+    "description": "FR-MB02, loud failure: no Spanish voice with network_required 0 exists in the engine catalogue. A network voice is never substituted."
+  },
+
+  "voiceStatusUnavailableSpeechPinning": "La síntesis de voz no está disponible sin conexión: no se pudo fijar una voz en español en el motor del dispositivo.",
+  "@voiceStatusUnavailableSpeechPinning": {
+    "description": "FR-MB02, loud failure: a candidate voice existed but setVoice refused it, so the choice could not be pinned and is not assumed."
+  },
+
+  "voiceStatusUnavailableSpeechEngine": "La síntesis de voz no está disponible sin conexión: el motor de voz del dispositivo no respondió.",
+  "@voiceStatusUnavailableSpeechEngine": {
+    "description": "FR-MB02, loud failure: enumerating the platform voice catalogue threw."
+  },
+
+  "voiceTranscriptInFlight": "…",
+  "@voiceTranscriptInFlight": {
+    "description": "Muted marker that follows the confirmed words of a live transcript (FR-MB05). It marks that more audio was captured than the last decode saw; the selected recognizer is non-streaming, so there are no words to show for that audio yet."
+  },
+
+  "voicePermissionDenied": "No se concedió el permiso del micrófono, así que no se puede capturar voz.",
+  "@voicePermissionDenied": {
+    "description": "FR-MB04: a denied microphone permission is stated in context rather than swallowed."
+  },
+
+  "voiceDebugTitle": "Diagnóstico de voz",
+  "@voiceDebugTitle": {
+    "description": "Title of the voice diagnostics screen."
+  },
+
+  "voiceDebugIntro": "Pantalla de verificación técnica. Lo que no se puede ver en pantalla queda registrado en el registro del dispositivo.",
+  "@voiceDebugIntro": {
+    "description": "States that this screen is a verification surface and that the log, not the screen, is the evidence."
+  },
+
+  "voiceDebugModelLabel": "Modelo de reconocimiento",
+  "@voiceDebugModelLabel": {
+    "description": "Label of the recognition model row on the diagnostics screen."
+  },
+
+  "voiceDebugModelValue": "sherpa-onnx, fast conformer CTC español, int8",
+  "@voiceDebugModelValue": {
+    "description": "The measured model. The row names the family, not the file, because the file lives in the model directory the fetch script fills."
+  },
+
+  "voiceDebugVoiceLabel": "Voz de síntesis",
+  "@voiceDebugVoiceLabel": {
+    "description": "Label of the pinned speech voice row on the diagnostics screen."
+  },
+
+  "voiceDebugVoiceValue": "{name} ({locale}), sin conexión",
+  "@voiceDebugVoiceValue": {
+    "description": "The pinned voice, with the fact that it requires no network. Showing the identity is what makes the pin verifiable on the device.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "locale": {
+        "type": "String"
+      }
+    }
+  },
+
+  "voiceDebugVoiceNone": "Sin voz en español sin conexión",
+  "@voiceDebugVoiceNone": {
+    "description": "Voice row of the diagnostics screen when no offline Spanish voice could be pinned."
+  },
+
+  "voiceDebugUtterance": "Agregá a Juan Pérez como cliente",
+  "@voiceDebugUtterance": {
+    "description": "The canonical utterance of PRD-MOBILE.md §5.1 used by the offline self-check: it is synthesised to a WAV file, decoded back through the recognizer, and spoken out loud. It lives here because it is spoken text, and no user-facing string is hard-coded in Dart."
+  },
+
+  "voiceDebugSelfCheck": "Ejecutar la verificación sin conexión",
+  "@voiceDebugSelfCheck": {
+    "description": "Runs the offline self-check: synthesis to a file, decode of that file, spoken output, and a microphone window."
+  },
+
+  "voiceDebugSelfCheckRunning": "Verificación en curso…",
+  "@voiceDebugSelfCheckRunning": {
+    "description": "Progress label while the self-check runs."
+  },
+
+  "voiceDebugSelfCheckPassed": "La verificación terminó: la síntesis y el reconocimiento respondieron.",
+  "@voiceDebugSelfCheckPassed": {
+    "description": "Self-check summary when synthesis produced a non-trivial file and the recognizer returned text for it."
+  },
+
+  "voiceDebugSelfCheckFailed": "La verificación terminó con fallas. El detalle está en el registro del dispositivo.",
+  "@voiceDebugSelfCheckFailed": {
+    "description": "Self-check summary when a step failed. It points at the log instead of pretending to be a diagnosis."
+  },
+
+  "voiceDebugCaptureStart": "Iniciar la captura del micrófono",
+  "@voiceDebugCaptureStart": {
+    "description": "Starts a live microphone window on the diagnostics screen."
+  },
+
+  "voiceDebugCaptureStop": "Detener la captura",
+  "@voiceDebugCaptureStop": {
+    "description": "Stops the live microphone window and decodes the buffer once more."
+  },
+
+  "voiceDebugTranscriptEmpty": "Todavía no se reconoció ninguna palabra.",
+  "@voiceDebugTranscriptEmpty": {
+    "description": "Live transcript empty state on the diagnostics screen."
+  },
+
+  "voiceDebugLogNote": "Las líneas [umlive][stt] y [umlive][tts] del registro del dispositivo son la evidencia de esta pantalla.",
+  "@voiceDebugLogNote": {
+    "description": "Names the log areas a reviewer should read. A microphone cannot be checked from a screenshot, so the log is the verification surface."
   }
 }

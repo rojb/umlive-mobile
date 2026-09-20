@@ -51,6 +51,26 @@ dependencies:
   sqflite: ^2.4.4
   path: ^1.9.0
 
+  # Offline speech recognition (FR-MB01d). The engine is embedded, so it
+  # depends on no platform service, no GMS and no user-installed language pack:
+  # PRD-MOBILE.md §10.2 measured the platform recognizer failing hard with
+  # `error_language_unavailable` on this handset, radios on *and* off. The
+  # federated package already carries the Android arm64 native libraries; the
+  # per-ABI alternatives are deliberately not added.
+  sherpa_onnx: 1.13.8
+
+  # Microphone capture for the recognizer: 16 kHz mono PCM16 (T6).
+  record: 7.1.1
+
+  # The real filesystem directory the bundled model is provisioned into. sherpa
+  # reads ordinary files, not Flutter asset keys, so the model is copied out of
+  # the APK at first run.
+  path_provider: 2.1.6
+
+  # Platform speech synthesis (FR-MB02), pinned to an `es-US` voice with
+  # `network_required: 0`.
+  flutter_tts: ^4.2.5
+
 dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -73,6 +93,16 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # The offline recognition model, bundled into the APK (FR-MB01d) and copied to
+  # a real directory at first run by the asset channel. Both files are
+  # git-ignored: tool/fetch_sherpa_model.sh downloads the archive, verifies it
+  # against the recorded SHA-256 and extracts these two. Declaring them here
+  # means a build without them fails loudly instead of shipping an app that
+  # cannot hear.
+  assets:
+    - assets/models/sherpa-es/model.int8.onnx
+    - assets/models/sherpa-es/tokens.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:

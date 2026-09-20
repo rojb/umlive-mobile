@@ -9,6 +9,7 @@ import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/glow_orb.dart';
 import '../widgets/reachability_indicator.dart';
+import '../widgets/voice_status_banner.dart';
 
 /// Assistant — the home screen (`FR-MG01`).
 ///
@@ -73,6 +74,11 @@ class AssistantScreen extends StatelessWidget {
                           child: ReachabilityIndicator(),
                         ),
                 ),
+                // FR-MB03: offline voice readiness is stated on the one screen
+                // that never leaves the conversation, so an app that cannot
+                // hear never looks like one that can. It renders nothing once
+                // the recognizer is built and an offline Spanish voice pinned.
+                const VoiceStatusBanner(),
                 Expanded(
                   // Scrollable so the platform's largest font scale grows the
                   // turn instead of clipping it (`FR-MG06`).

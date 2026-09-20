@@ -36,6 +36,13 @@ lib/l10n/app_localizations*.dart
 /build/
 /coverage/
 
+# The offline recognition model: about 126 MB on disk, bundled into the APK but
+# never committed. It is fetched by hand with tool/fetch_sherpa_model.sh, which
+# verifies the download against a recorded SHA-256 before extracting it here.
+# The directory itself is kept so the fetch target exists in a fresh clone.
+/assets/models/sherpa-es/*
+!/assets/models/sherpa-es/.gitkeep
+
 # Symbolication related
 app.*.symbols
 
@@ -49,3 +56,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Kotlin compiler session files, written under android/ during a Gradle build.
+/android/.kotlin/

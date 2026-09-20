@@ -155,8 +155,18 @@ CREATE TABLE read_cache(
 
 ## 7. Verification protocol
 
-In this order, every times:
+In this order, every time:
 
+0. `cd apps/mobile && ./tool/fetch_sherpa_model.sh` — **the one hand-run
+   prerequisite of a fresh clone.** The offline recognition model is about
+   126 MB on disk and is deliberately not committed, while `pubspec.yaml`
+   declares both of its files as assets: a build that skips this step fails
+   loudly instead of shipping an app that cannot hear. The script downloads the
+   archive, verifies it against the recorded SHA-256, verifies both extracted
+   files against their recorded identities, and writes them into the git-ignored
+   `assets/models/sherpa-es/`. It is idempotent, `--force` re-does it, and
+   `--print-identity` prints the block that `lib/voice/voice_assets.dart`
+   carries, so the script and the app cannot disagree about what the model is.
 1. `cd apps/mobile && flutter analyze` — must be clean.
 2. `cd apps/mobile && flutter build apk --debug --target-platform android-arm64`.
    The `--target-platform` flag is the only mechanism that actually restricts
@@ -184,6 +194,28 @@ with `adb reverse --list` before claiming the online state again.
 `adb` lives at `C:/Users/lTemp/AppData/Local/Android/Sdk/platform-tools/adb.exe`.
 Git Bash needs `MSYS_NO_PATHCONV=1` for device-side paths (`/sdcard/...`), which
 then requires a `C:/…` Windows path for the local side of the same command.
+
+**Known environment quirk.** On this Windows host the Kotlin incremental
+compile cache of a plugin under `build/` can end up locked, and Gradle then
+fails with `Could not close incremental caches … caches-jvm`. The build itself
+is fine; the workaround is to pass the property through to Gradle, which Flutter
+supports:
+
+```bash
+flutter build apk --debug --target-platform android-arm64 \
+  -P kotlin.incremental=false
+```
+
+**Verifying the offline voice path.** Recognition cannot be read from a
+screenshot, so the app logs everything that has to be believed under
+`[umlive][stt]` and `[umlive][tts]`, and a build made with
+`-D UMLIVE_VOICE_SELFCHECK=true` runs the whole offline chain on launch:
+provision, build the recognizer, synthesise the `§5.1` utterance to a WAV file
+with the platform engine, decode that same file through the recognizer, speak
+it, and finish with a five-second microphone window. That build also opens the
+diagnostics screen instead of the assistant, so the same run can be watched;
+the screen is registered as a route **only** with that flag, so no tap in an
+ordinary build reaches it. `adb logcat -d | grep umlive` is the evidence.
 
 ## 8. Device
 
@@ -316,3 +348,110 @@ owns the document hash. T4 persists, T5 reports failure, the resolvers read.
   no way into a conversation that could only fail. There is no code path that
   synthesises a route from an entity name: every path, verb and field the app
   uses comes from the registry, which comes from the document.
+
+## 13. Voice: embedded recognition, platform synthesis (T6, T7)
+
+The product rests on both halves working with every radio off, so both are
+stated here as decisions with the evidence that chose them. Folder roles are
+`lib/voice/` (engine) and `lib/presentation/` (rendering); the composition root
+is unchanged: `AppServices` builds one `VoiceController`, `main()` calls
+`voice.initialize()` after the first frame (provisioning 126 MB must not hold up
+startup), and screens listen to it like they listen to `ConnectionController`.
+
+### 13.1 The model is bundled, provisioned at first run, and never committed
+
+- `sherpa_onnx` 1.13.8 (federated package; the per-ABI alternatives are
+  deliberately not added), `record` 7.1.1, `path_provider` 2.1.6.
+- The model is `sherpa-onnx-nemo-fast-conformer-ctc-es-1424-int8`: archive
+  SHA-256 `75053ea480a95eb9df7831cf085e016dbde34fb99d017a85faec964bef395b6f`,
+  `model.int8.onnx` at 131 652 445 bytes and `tokens.txt` at 10 871 bytes.
+- **The 126 MB blob is not in git.** `/assets/models/sherpa-es/*` is ignored and
+  `tool/fetch_sherpa_model.sh` is the one hand-run prerequisite (protocol §7,
+  step 0). It downloads the archive, verifies it and both extracted files
+  against the recorded identities, and only then writes them into
+  `assets/models/sherpa-es/`. `--force` re-does it; `--print-identity` prints the
+  block `lib/voice/voice_assets.dart` carries, so the script and the app cannot
+  disagree about what the model is. `pubspec.yaml` declares the two files
+  individually, so a clone that skipped the script fails at build time.
+- Provisioning copies the model out of the APK into `<app files>/sherpa-es/` at
+  first run, **streamed by a Kotlin method channel** (`MainActivity`, channel
+  `com.umlive.voice/assets`, `AssetManager` → file in 1 MiB chunks with progress
+  callbacks). `rootBundle.load` was rejected because it materialises the whole
+  126 MB in the Dart heap; the channel's peak is one chunk plus the digest. The
+  channel reports the SHA-256 of what it wrote and the Dart side refuses
+  anything that does not match; the resolved asset key is logged, which is what
+  makes the bundle layout verifiable. Provisioning is idempotent: a marker plus
+  both file sizes short-circuit a repeat run.
+- The app never degrades silently (`FR-MB01c`, `FR-MB03`). While provisioning
+  runs, and whenever it fails, the readiness banner on the Assistant screen
+  states that offline voice is unavailable and names the cause: asset missing
+  from the build, identity mismatch, copy failure, or recognizer failure.
+  Synthesis unavailability is stated separately, because the two halves are
+  selected independently (`FR-MB02`).
+
+### 13.2 Recognition: the measured configuration, copied and not re-derived
+
+- Built in a dedicated isolate (`lib/voice/sherpa_recognizer.dart`) that calls
+  `initBindings()` **again**: the bindings are per isolate, and this isolate is
+  a second one. `numThreads: 2`, `decodingMethod: 'greedy_search'`, 16 kHz,
+  feature dim 80. Keeping it off the UI isolate is not cosmetic — construction
+  is seconds of native work and every decode is CPU-bound.
+- Capture: `record` with `AudioEncoder.pcm16bits`, 16 kHz mono; int16 little
+  endian → Float32 `[-1, 1]` via `getInt16(i * 2, Endian.little) / 32768.0`.
+- `lib/voice/wav_audio.dart` reads PCM WAV for one reason: to decode audio the
+  microphone did not produce. The platform synthesizer writes 24 kHz mono here,
+  and the reader resamples to 16 kHz, which is how recognition is *observed*
+  with the radios off without a human speaking into the handset. The source
+  rate, channel count and the fact that resampling happened are logged.
+- Partials are re-decodes of the audio captured so far (`FR-MB05`): the first
+  after ~1.2 s, then at most one every ~1.5 s, and a tick is **skipped** while a
+  previous decode is still running so work never piles up behind a slow decode.
+  The microphone window is capped at 45 s of audio, which is longer than any
+  single `§5.1` utterance and bounded on purpose.
+- The transcript renders the last completed partial in `text-primary` and a
+  muted in-flight marker in `text-muted` (`lib/presentation/widgets/
+  live_transcript_view.dart`). That is the UX spec's "confirmed words white,
+  in-flight tail muted" adapted to a **non-streaming** engine, which exposes no
+  confirmed-prefix boundary: the last completed partial is real text the
+  recognizer produced, and the audio no decode has looked at yet gets a muted
+  marker rather than muted words, because words for undecoded audio would be
+  invented.
+- The verification surface is the log, not the screen. `[umlive][stt]` carries
+  provisioning bytes and hashes, `model_load` ms and bytes, recognizer
+  construction ms with `init_bindings_ms`, threads and decoding method, and for
+  every decode `source`, `sample_rate`, `audio_ms`, `decode_ms`, `rtf` and the
+  recognised `text`.
+
+### 13.3 Synthesis: platform engine, pinned to an offline voice
+
+- `flutter_tts` `^4.2.5`, `com.google.android.tts`, locale `es-US`.
+- The voice is chosen from `getVoices` — Spanish **and** `network_required: 0` —
+  and pinned with `setVoice`, never with `setLanguage` alone: half the `es-US`
+  catalogue needs the network and `setLanguage` leaves the engine free to take
+  one of those. `es-US` is preferred, then another offline Spanish locale, and
+  the fallback is logged (`fallback_locale=true`) rather than hidden.
+- Availability is decided from `getVoices`/`getLanguages`, never from
+  `isLanguageAvailable`, which is optimistic on this handset (measured: `true`
+  for `es-BO`, `es-419` and `es-MX` while the catalogue holds only `es-ES` and
+  `es-US`). No offline Spanish voice means a visible sentence and a refusal: no
+  network voice is ever substituted, and no preference-style offline hint is
+  relied on (`FR-MB01`).
+- Offline synthesis is evidenced by file rather than by ear:
+  `synthesizeToFile` writes into the app's cache directory and
+  `[umlive][tts] kind=synthesize` carries the path, the byte size and the pinned
+  voice's `name`, `locale` and `network_required`.
+
+### 13.4 Models considered and not adopted
+
+Recorded so the choice is a decision rather than a default. Both are Spanish and
+both exist in the same `sherpa-onnx` asr-models release:
+
+| Model | Size | Why not now |
+|---|---|---|
+| `sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06` | 118.6 MB | Streaming, so it would give real partials instead of re-decodes. Unmeasured on this handset, while the non-streaming model already decodes well below real time. This is the recorded fallback if partial latency becomes the problem. |
+| `sherpa-onnx-moonshine-base-es-quantized-2026-02-27` | 48.5 MB | Much smaller, but a different model family, unmeasured here, and accuracy on the `§5.1` utterances is the only thing that matters — it has not been demonstrated. |
+
+`speech_to_text` is deliberately **not** a dependency: the platform recognizer
+failed hard with `error_language_unavailable` on this handset with the radios on
+*and* off, and does not fall back because its availability flag reports `true`
+(`PRD-MOBILE.md` §10.2).
