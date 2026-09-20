@@ -298,6 +298,12 @@ class DeterministicOperationResolver implements OperationResolver {
     // The count is computed here, from the full body the app is answering
     // from — the backend's or the remembered one, the same way either way: the
     // generated API publishes no count endpoint (`FR-ME02`).
+    //
+    // A `get` does not answer with this number (`T20`): what it still decides
+    // is the shape of the body — a single-record read that did not come back as
+    // an object is unreadable, exactly as a collection that did not come back
+    // as an array is — and it stays the `count` column of the resolver's log
+    // line, so a live `get`'s line is exactly the one it always was.
     final body = result.decodedBody;
     int? recordCount;
     if (plan.intent == _Intent.get) {
@@ -325,11 +331,26 @@ class DeterministicOperationResolver implements OperationResolver {
     // (`FR-MD05`). Both sentences come from the ARB and the app ships exactly
     // one locale (`l10n.yaml`), which is why a plain space is the separator
     // between them and no locale-specific joiner is needed.
-    final answer = l10n.conversationCountAnswer(
-      recordCount,
-      name,
-      pluralizeSpanishNoun(name),
-    );
+    //
+    // **A single record is named, not counted** (`T20`). `FR-ME01` is about
+    // the agreement a count needs; a `get` has no count to agree with, and
+    // *"Hay 1 cliente."* answered a different question than the one asked — it
+    // said how many there were and never what had been read. The sentence
+    // therefore names the record, and the identifier it names is the one the
+    // operator said, the same value the discovered path parameter was bound
+    // with — never a fragment of the response body, because no field of the
+    // body is read by name here (`FR-MA03`). `count` and `list` keep the
+    // counting sentence, because there the count **is** the answer.
+    //
+    // `recordId` is non-null on this branch by construction:
+    // `_classifyIntent` builds a `get` plan only around a numeric token.
+    final answer = plan.intent == _Intent.get
+        ? l10n.conversationSingleRecordAnswer(recordId!, name)
+        : l10n.conversationCountAnswer(
+            recordCount,
+            name,
+            pluralizeSpanishNoun(name),
+          );
 
     return _finish(
       utteranceLength: length,

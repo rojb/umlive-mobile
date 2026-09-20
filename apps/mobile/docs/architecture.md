@@ -1049,3 +1049,39 @@ target is never inferred.
   `metodo: tarjeta` with the question still standing; and both the touched control and
   the typed word `cancelar` ended a collecting draft with *"Se canceló la operación y
   no se envió nada."*, no executor line and nothing created.
+
+## 25. Answer generation: agreement, and the record sentence (T20)
+
+- **Two sentences, and they are not interchangeable.** A `count` and a `list` are
+  answered with `conversationCountAnswer` — an ICU plural whose zero form is
+  *"No hay clientes todavía."*, whose singular is *"Hay 1 cliente."* and whose many
+  form is *"Hay {count} clientes."* A `get` is answered with
+  `conversationSingleRecordAnswer`: *"Se leyó el registro 9 de cliente."* It used to
+  answer with the count sentence, which says how many were read and never says
+  **what** was read; the record's own fields are `T21`'s cards, but the sentence had
+  to stop pretending a single record is a count.
+- **The singular is a test case, not an emergent property** (`FR-ME01`). Measured on
+  `TFY-LX3`: `Hay 1 cliente.` — with the singular noun — and the plural confirmed at
+  a number above two, `Hay 5 pagos.`; the list answers with the same sentence as the
+  count, because for a listing the count *is* the answer. The cached variant carries
+  both agreements at once: *"Hay 1 cliente. Datos guardados hace instantes."*
+- **The register, again.** The PRD's form is *"Tienes 1 cliente."*; the app says
+  *"Hay 1 cliente."*. The count and the agreement the requirement names are both
+  there; the second person is not, because the copy convention is impersonal (§14).
+- **Every number in the copy was audited, and one was wrong.** Twelve ARB entries
+  carry numeric placeholders; each was checked for whether its number sits next to a
+  noun and, if so, how the agreement is handled — ICU plural, a fixed singular (a
+  status code is not a count), or a colon-label form with no agreement to make. The
+  one defect: `connectSuccessOperations` rendered *"1 operaciones disponibles"* for a
+  backend publishing exactly one operation; it is now an ICU plural. Two entries keep
+  their colon-label shape on purpose (`queueAttempts`, `registryChanged*`), and
+  `registryChangedAdded`'s own description already says the phrasing was chosen to
+  avoid a noun that would need two forms.
+- **Counts stay client-side** (`FR-ME02`): computed from the full collection the
+  backend returned, because the generated API publishes no count endpoint and no
+  pagination (§14).
+- **Pluralisation is a morphology rule, not a dictionary** — vowel `+s`, consonant
+  `+es`, `z` → `ces`, and the `-ión` family that drops its written accent. Its limits
+  are stated where it lives (`conversation/spanish_language.dart`): invariant nouns
+  (`crisis`), the `-ús`/`-ís` split (`autobús` → `autobuses` but `país` → `países`),
+  and words that gain an accent in the plural (`examen` → `exámenes`).

@@ -449,9 +449,9 @@
     }
   },
 
-  "connectSuccessOperations": "{count} operaciones disponibles",
+  "connectSuccessOperations": "{count, plural, =1{1 operación disponible} other{{count} operaciones disponibles}}",
   "@connectSuccessOperations": {
-    "description": "Count of callable operations derived from the description (FR-MA03).",
+    "description": "Count of callable operations derived from the description (FR-MA03). FR-ME01: the number quantifies the noun in the same phrase, so a count of one needs the singular, and the ICU plural is what makes '1 operación disponible' and '2 operaciones disponibles' both correct. The screen renders connectSuccessNoOperations instead of a count of zero, so no zero branch is written.",
     "placeholders": {
       "count": {
         "type": "int"
@@ -576,7 +576,7 @@
 
   "conversationCountAnswer": "{count, plural, =0{No hay {entities} todavía.} =1{Hay 1 {entity}.} other{Hay {count} {entities}.}}",
   "@conversationCountAnswer": {
-    "description": "T12: the answer to every successful read, in the three number-agreement forms the UX spec asks for. The zero branch is the UX spec's empty-collection sentence. The singular branch names the count with the singular noun because FR-ME01 calls that case an explicit test case, so it is a form the app is measured on rather than a fallback. The register is impersonal because the app's copy convention avoids tuteo and voseo (the PRD §5.1 form 'Tienes 1 cliente.' states the same count and the same agreement in the second person). T20 widens answer generation to the remaining outcomes.",
+    "description": "T12: the answer to every successful read, in the three number-agreement forms the UX spec asks for. The zero branch is the UX spec's empty-collection sentence. The singular branch names the count with the singular noun because FR-ME01 calls that case an explicit test case, so it is a form the app is measured on rather than a fallback. The register is impersonal because the app's copy convention avoids tuteo and voseo (the PRD §5.1 form 'Tienes 1 cliente.' states the same count and the same agreement in the second person). T20 narrows it to count and list: a single-record read answers with conversationSingleRecordAnswer. T20 widens answer generation to the remaining outcomes.",
     "placeholders": {
       "count": {
         "type": "int"
@@ -585,6 +585,19 @@
         "type": "String"
       },
       "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "conversationSingleRecordAnswer": "Se leyó el registro {id} de {entity}.",
+  "@conversationSingleRecordAnswer": {
+    "description": "T20: the answer to a single-record read that succeeded or was served from the cache, which names the record instead of counting one. It replaces conversationCountAnswer on the get path, where 'Hay 1 cliente.' stated a count and never said what had been read; count and list keep the counting sentence, because there the count is the answer. FR-ME01 is about agreement and this sentence carries no number-noun agreement at all: it names the record, and the record's own fields are T21's cards. Deliberately no article before the entity name: Spanish gender is not derivable from the schema, so the sentence has to be right for cliente and for dirección alike. The identifier is the value the discovered path parameter was bound with, the one the operator said, and never a fragment of the response body. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "entity": {
         "type": "String"
       }
     }
