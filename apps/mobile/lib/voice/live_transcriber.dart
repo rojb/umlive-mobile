@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -63,6 +64,30 @@ class LiveTranscriber extends ChangeNotifier {
   bool _listening = false;
   bool _capped = false;
 
+  /// Real microphone level, `0..1`, for the orb (`FR-MG05`).
+  ///
+  /// This is a **separate** [ValueListenable], deliberately not folded into
+  /// [notifyListeners]: it updates on every audio chunk — tens of times a
+  /// second — and routing that through the `ChangeNotifier` would rebuild the
+  /// transcript and the rest of the screen at chunk rate. Only the orb
+  /// subscribes to this.
+  ValueListenable<double> get amplitude => _amplitude;
+  final ValueNotifier<double> _amplitude = ValueNotifier<double>(0);
+
+  // Attack/decay smoothing constants, tuned against the measured chunk
+  // cadence rather than picked arbitrarily: `record`'s Android stream
+  // delivers a chunk roughly every 20-100 ms.
+  // - Attack closes most of the gap to a *louder* reading per chunk, so the
+  //   orb visibly reacts within a couple of chunks of speech starting —
+  //   onset has to feel immediate or the orb reads as laggy, not alive.
+  // - Decay closes only a small fraction of the gap to a *quieter* reading
+  //   per chunk, so a natural gap between syllables or words does not read as
+  //   silence; it takes on the order of a few hundred ms of continued quiet
+  //   to settle towards zero. Symmetric smoothing here would either strobe on
+  //   every consonant (too fast) or feel unresponsive (too slow).
+  static const double _attackFactor = 0.6;
+  static const double _decayFactor = 0.15;
+
   LiveTranscript get transcript => _transcript;
 
   bool get isListening => _listening;
@@ -83,6 +108,7 @@ class LiveTranscriber extends ChangeNotifier {
     _decodedSampleCount = 0;
     _capped = false;
     _transcript = const LiveTranscript();
+    _amplitude.value = 0;
     _listening = true;
     _subscription = stream.listen(
       _onChunk,
@@ -104,6 +130,12 @@ class LiveTranscriber extends ChangeNotifier {
   }
 
   void _onChunk(Float32List samples) {
+    // Computed unconditionally, ahead of the window-cap check below: the
+    // microphone stays open and the amplitude must keep reflecting it even
+    // once the 45 s buffer stops growing. Freezing the level here would make
+    // the orb lie about a still-open microphone.
+    _updateAmplitude(samples);
+
     final limit = sampleRate * maxSeconds;
     if (_sampleCount >= limit) {
       if (!_capped) {
@@ -118,6 +150,23 @@ class LiveTranscriber extends ChangeNotifier {
     }
     _chunks.add(samples);
     _sampleCount += samples.length;
+  }
+
+  /// RMS over the chunk, mapped to `0..1` and attack/decay smoothed.
+  void _updateAmplitude(Float32List samples) {
+    if (samples.isEmpty) return;
+    var sumSquares = 0.0;
+    for (final sample in samples) {
+      sumSquares += sample * sample;
+    }
+    final rms = math.sqrt(sumSquares / samples.length);
+    // Samples are already normalised to [-1, 1] (`pcm16ToFloat32`), so RMS is
+    // already close to 0..1; the clamp is a safety net against an unexpected
+    // hot input rather than an expected case.
+    final level = rms.clamp(0.0, 1.0);
+    final current = _amplitude.value;
+    final factor = level > current ? _attackFactor : _decayFactor;
+    _amplitude.value = current + (level - current) * factor;
   }
 
   Future<void> _partial() async {
@@ -178,6 +227,9 @@ class LiveTranscriber extends ChangeNotifier {
     await _subscription?.cancel();
     _subscription = null;
     await _capture.stop();
+    // The microphone is closed: the orb must fall back to 0 rather than
+    // hold whatever level the last chunk happened to leave it at.
+    _amplitude.value = 0;
 
     if (_sampleCount == 0) {
       notifyListeners();
@@ -213,6 +265,7 @@ class LiveTranscriber extends ChangeNotifier {
     _periodicTimer?.cancel();
     unawaited(_subscription?.cancel());
     unawaited(_capture.stop());
+    _amplitude.dispose();
     super.dispose();
   }
 }

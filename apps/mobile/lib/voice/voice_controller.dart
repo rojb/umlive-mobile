@@ -65,12 +65,12 @@ class VoiceController extends ChangeNotifier {
     Future<Directory> Function()? temporaryDirectory,
   })  : _provisioner = provisioner ?? SherpaModelProvisioner(),
         _speech = speech ?? PlatformSpeech(),
-        _microphone = microphoneCapture,
+        _microphone = microphoneCapture ?? MicrophoneCapture(),
         _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory;
 
   final SherpaModelProvisioner _provisioner;
   final PlatformSpeech _speech;
-  final MicrophoneCapture? _microphone;
+  final MicrophoneCapture _microphone;
   final Future<Directory> Function() _temporaryDirectory;
 
   VoiceReadiness _readiness = VoiceReadiness.idle;
@@ -82,6 +82,15 @@ class VoiceController extends ChangeNotifier {
   SherpaRecognizer? _recognizer;
   LiveTranscriber? _transcriber;
   Future<void>? _initialization;
+  MicrophonePermission _micPermission = MicrophonePermission.unknown;
+
+  /// Real microphone level, `0..1`, forwarded from the live transcriber
+  /// without going through [notifyListeners] — see
+  /// [LiveTranscriber.amplitude] for why. The orb is the only thing meant to
+  /// listen to this; it stays at 0 before the engine is ready and after
+  /// capture stops.
+  ValueListenable<double> get amplitude => _amplitude;
+  final ValueNotifier<double> _amplitude = ValueNotifier<double>(0);
 
   VoiceReadiness get readiness => _readiness;
 
@@ -169,10 +178,12 @@ class VoiceController extends ChangeNotifier {
       return;
     }
 
-    _transcriber = LiveTranscriber(
-      _recognizer!,
-      _microphone ?? MicrophoneCapture(sampleRate: _recognizer!.sampleRate),
+    assert(
+      _recognizer!.sampleRate == _microphone.sampleRate,
+      'the microphone must capture at the sample rate the recognizer expects',
     );
+    _transcriber = LiveTranscriber(_recognizer!, _microphone);
+    _transcriber!.amplitude.addListener(_forwardAmplitude);
 
     // Speech is selected independently of recognition (`FR-MB02`): a missing
     // offline voice does not disable recognition, and it is reported on its own.
@@ -210,6 +221,39 @@ class VoiceController extends ChangeNotifier {
     return text;
   }
 
+  /// Current microphone permission, refreshed by [refreshMicrophonePermission]
+  /// and [requestMicrophonePermission]. Read-only status: never shows the OS
+  /// dialog on its own.
+  MicrophonePermission get microphonePermission => _micPermission;
+
+  /// Re-reads the OS permission without prompting.
+  ///
+  /// Safe to call at any time, including before the voice engine is ready.
+  /// Called on screen build and on app resume, so a grant made from system
+  /// Settings — the only way out of [MicrophonePermission.permanentlyDenied]
+  /// — is picked up without an extra tap.
+  Future<void> refreshMicrophonePermission() async {
+    _micPermission = await _microphone.checkPermission();
+    notifyListeners();
+  }
+
+  /// Shows the OS permission dialog. Must only ever be called from a user
+  /// tap, after the caller has already shown — and ideally spoken — the
+  /// explanation `FR-MB04` requires; this method itself explains nothing.
+  Future<MicrophonePermission> requestMicrophonePermission() async {
+    _micPermission = await _microphone.requestPermission();
+    notifyListeners();
+    return _micPermission;
+  }
+
+  /// Opens this app's system settings page — the only way out of a permanent
+  /// denial.
+  Future<bool> openMicrophoneSettings() => _microphone.openSettings();
+
+  void _forwardAmplitude() {
+    _amplitude.value = _transcriber?.amplitude.value ?? 0;
+  }
+
   /// Synthesises [text] into a WAV file under the app's temporary directory.
   Future<SpeechSynthesis> synthesizeToFile(String text) async {
     final scratch = await _temporaryDirectory();
@@ -222,8 +266,10 @@ class VoiceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _transcriber?.amplitude.removeListener(_forwardAmplitude);
     _transcriber?.dispose();
     _recognizer?.dispose();
+    _amplitude.dispose();
     super.dispose();
   }
 

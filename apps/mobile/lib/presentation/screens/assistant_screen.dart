@@ -7,28 +7,43 @@ import '../../theme/tokens.dart';
 import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
-import '../widgets/glow_orb.dart';
+import '../widgets/capture_section.dart';
 import '../widgets/reachability_indicator.dart';
 import '../widgets/voice_status_banner.dart';
 
 /// Assistant — the home screen (`FR-MG01`).
 ///
-/// T1 lays out the shell only: the app bar with its two destinations, the start
-/// of the conversation, and the capture control in the bottom third. The control
-/// is deliberately inert and captioned as unavailable, because a listening
-/// visual over a closed microphone is a correctness bug (`FR-MG05`).
+/// T1 laid out the shell: the app bar with its two destinations, the start of
+/// the conversation, and the capture control in the bottom third.
 ///
-/// T2 adds the reachability state to the app bar: `FR-MA05` requires it visible
-/// without navigating away from the conversation, and the app bar is the one
-/// surface that never leaves.
-class AssistantScreen extends StatelessWidget {
+/// T2 added the reachability state to the app bar: `FR-MA05` requires it
+/// visible without navigating away from the conversation, and the app bar is
+/// the one surface that never leaves.
+///
+/// T8 binds the capture control to the real voice engine (`CaptureSection`):
+/// live amplitude, the live transcript, in-context microphone permission and
+/// the text fallback. What is captured is rendered as a turn here, but
+/// resolving it is Phase C's job — this screen still only shows what was
+/// heard or typed, never what to do about it.
+class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
+
+  @override
+  State<AssistantScreen> createState() => _AssistantScreenState();
+}
+
+class _AssistantScreenState extends State<AssistantScreen> {
+  final List<String> _utterances = [];
+
+  void _onUtterance(String text) {
+    setState(() => _utterances.add(text));
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final textTheme = Theme.of(context).textTheme;
     final connection = AppScope.of(context).connection;
+    final voice = AppScope.of(context).voice;
 
     return AppBackground(
       child: Scaffold(
@@ -106,9 +121,25 @@ class AssistantScreen extends StatelessWidget {
                           ? l10n.assistantGreeting
                           : scopeGreeting(l10n, registry);
                       return SingleChildScrollView(
-                        child: Align(
-                          alignment: Alignment.topLeft,
-                          child: _AssistantTurn(text: greeting),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Align(
+                              alignment: Alignment.topLeft,
+                              child: _AssistantTurn(text: greeting),
+                            ),
+                            // What the microphone or the text fallback
+                            // captured, rendered as a plain turn. T8 is
+                            // capture only: resolving these is Phase C's job,
+                            // so nothing here answers or acts on them yet.
+                            for (final utterance in _utterances) ...[
+                              const SizedBox(height: AppSpacing.sm),
+                              Align(
+                                alignment: Alignment.topRight,
+                                child: _UserTurn(text: utterance),
+                              ),
+                            ],
+                          ],
                         ),
                       );
                     },
@@ -127,21 +158,9 @@ class AssistantScreen extends StatelessWidget {
                     if (!connection.hasWorkableRegistry) {
                       return const SizedBox.shrink();
                     }
-                    return Semantics(
-                      label: l10n.captureOrbSemantics,
-                      child: Column(
-                        children: [
-                          // Amplitude 0, microphone closed: static and dim until
-                          // T8 binds the control to the real input level.
-                          const GlowOrb(),
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            l10n.captureUnavailableCaption,
-                            textAlign: TextAlign.center,
-                            style: textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
+                    return CaptureSection(
+                      voice: voice,
+                      onUtterance: _onUtterance,
                     );
                   },
                 ),
@@ -174,6 +193,36 @@ class _AssistantTurn extends StatelessWidget {
         borderRadius: AppRadii.cardSmallAll,
       ),
       child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+    );
+  }
+}
+
+/// A turn produced by the user, whether spoken or typed through the text
+/// fallback (`FR-MB06`): both paths call the same [_AssistantScreenState]
+/// callback and render identically here, because capture does not care which
+/// one produced the utterance.
+class _UserTurn extends StatelessWidget {
+  const _UserTurn({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.userBubble,
+        borderRadius: AppRadii.cardSmallAll,
+      ),
+      child: Text(
+        text,
+        style: Theme.of(
+          context,
+        ).textTheme.bodyMedium?.copyWith(color: AppColors.onUserBubble),
+      ),
     );
   }
 }

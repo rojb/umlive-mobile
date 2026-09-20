@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 import '../core/log.dart';
@@ -14,6 +15,22 @@ class MicrophoneException implements Exception {
 
   @override
   String toString() => 'MicrophoneException($reason)';
+}
+
+/// The microphone permission, distinguishing an ordinary denial from a
+/// permanent one (`FR-MB04`).
+///
+/// `record`'s own `hasPermission()` cannot tell the two apart: on Android,
+/// once the user picks "don't ask again", asking again silently returns
+/// denied with no dialog at all, which from the app's side is
+/// indistinguishable from a hang. This is why permission status is read
+/// through `permission_handler` instead, which exposes the permanent case.
+enum MicrophonePermission {
+  /// Not checked yet in this process.
+  unknown,
+  granted,
+  denied,
+  permanentlyDenied,
 }
 
 /// Microphone capture at the rate the model wants.
@@ -36,14 +53,48 @@ class MicrophoneCapture {
 
   bool get isListening => _listening;
 
-  /// Asks for the microphone permission in context (`FR-MB04`).
-  Future<bool> requestPermission() async {
-    final recorder = AudioRecorder();
-    try {
-      return await recorder.hasPermission();
-    } finally {
-      await recorder.dispose();
+  /// Reads the current microphone permission without prompting (`FR-MB04`).
+  ///
+  /// Safe to call at any time — on screen build, and on app resume, so a
+  /// grant made from system Settings after a permanent denial is picked up
+  /// without the user tapping anything in the app.
+  Future<MicrophonePermission> checkPermission() async {
+    final status = await Permission.microphone.status;
+    return _mapStatus(status);
+  }
+
+  /// Shows the OS permission dialog.
+  ///
+  /// The caller is responsible for explaining first, in writing and spoken
+  /// (`FR-MB04`) — this method only ever prompts, it never explains.
+  ///
+  /// A permanently-denied status is returned without touching the native
+  /// dialog at all: Android refuses to show it a second time once the user
+  /// picked "don't ask again", so asking anyway would just return `denied`
+  /// with nothing on screen to say why — the exact shape of the 150 s hang
+  /// T7 measured.
+  Future<MicrophonePermission> requestPermission() async {
+    final current = await Permission.microphone.status;
+    if (current.isPermanentlyDenied) {
+      return MicrophonePermission.permanentlyDenied;
     }
+    final status = await Permission.microphone.request();
+    logEvent('stt', {'kind': 'permission', 'result': status.name});
+    return _mapStatus(status);
+  }
+
+  /// Opens this app's system settings page — the only way out of a permanent
+  /// denial.
+  Future<bool> openSettings() => openAppSettings();
+
+  static MicrophonePermission _mapStatus(PermissionStatus status) {
+    if (status.isGranted || status == PermissionStatus.limited) {
+      return MicrophonePermission.granted;
+    }
+    if (status.isPermanentlyDenied) {
+      return MicrophonePermission.permanentlyDenied;
+    }
+    return MicrophonePermission.denied;
   }
 
   /// Starts streaming mono PCM16 and yields float samples in `[-1, 1]`.

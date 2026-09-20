@@ -13,12 +13,77 @@
 
   "captureUnavailableCaption": "El micrófono todavía no está disponible",
   "@captureUnavailableCaption": {
-    "description": "Caption under the capture orb while the microphone is deliberately closed. T8 replaces it with the live listening state."
+    "description": "Caption under the capture orb while the voice engine itself is not ready yet (still provisioning, or unavailable on this install). The recognizer readiness banner above already states the detailed reason; this caption only says the control cannot be used yet."
   },
 
   "captureOrbSemantics": "Control de captura de voz. El micrófono todavía no está disponible.",
   "@captureOrbSemantics": {
-    "description": "Screen-reader label for the capture control. FR-MG03/FR-MG04: every control announces its own state, and the caption alone is not enough because the orb carries no text."
+    "description": "Screen-reader label for the capture control while the voice engine is not ready. FR-MG03/FR-MG04: every control announces its own state, and the caption alone is not enough because the orb carries no text."
+  },
+
+  "captureIdleCaption": "Toca para hablar",
+  "@captureIdleCaption": {
+    "description": "Caption under the capture orb once the engine is ready, the microphone permission is granted, and nothing is being captured yet."
+  },
+
+  "captureListeningCaption": "Escuchando…",
+  "@captureListeningCaption": {
+    "description": "Empty-state label of the live transcript while listening and no partial has arrived yet."
+  },
+
+  "captureOrbSemanticsReady": "Control de captura de voz. Toca para hablar.",
+  "@captureOrbSemanticsReady": {
+    "description": "Screen-reader label for the capture control when it is armed and idle."
+  },
+
+  "captureOrbSemanticsListening": "Control de captura de voz. Escuchando. Toca para detener.",
+  "@captureOrbSemanticsListening": {
+    "description": "Screen-reader label for the capture control while the microphone is open."
+  },
+
+  "captureOrbSemanticsPermissionNeeded": "Control de captura de voz. Se necesita el permiso del micrófono. Toca para pedirlo.",
+  "@captureOrbSemanticsPermissionNeeded": {
+    "description": "Screen-reader label for the capture control when the microphone permission has not been granted yet, or was denied but can still be requested again (FR-MB04)."
+  },
+
+  "captureOrbSemanticsPermissionBlocked": "Control de captura de voz. El micrófono está bloqueado para esta aplicación. Abre los ajustes del sistema para habilitarlo.",
+  "@captureOrbSemanticsPermissionBlocked": {
+    "description": "Screen-reader label for the capture control once the microphone permission was permanently denied (FR-MB04)."
+  },
+
+  "microphonePermissionRationale": "UMLive Voice necesita acceso al micrófono para escuchar las indicaciones por voz. Toca el micrófono para conceder el permiso.",
+  "@microphonePermissionRationale": {
+    "description": "The FR-MB04 explanation shown in writing before the microphone permission is requested, and spoken through VoiceController.speak at the moment the request is made. Also shown, unchanged, after an ordinary (non-permanent) denial, since it still describes what tapping again will do."
+  },
+
+  "microphonePermissionPermanentlyDeniedCaption": "El micrófono está bloqueado para esta aplicación y ya no se puede volver a pedir el permiso desde aquí. Puedes habilitarlo desde los ajustes del sistema, o escribir tu indicación.",
+  "@microphonePermissionPermanentlyDeniedCaption": {
+    "description": "FR-MB04: shown once the microphone permission is permanently denied. States plainly that the app cannot ask again and names the two ways forward, including the text fallback (FR-MB06)."
+  },
+
+  "microphonePermissionOpenSettings": "Abrir ajustes del sistema",
+  "@microphonePermissionOpenSettings": {
+    "description": "Button shown alongside microphonePermissionPermanentlyDeniedCaption; opens this app's system settings page."
+  },
+
+  "microphoneCaptureFailedCaption": "No se pudo usar el micrófono en este momento. Prueba de nuevo, o escribe tu indicación.",
+  "@microphoneCaptureFailedCaption": {
+    "description": "Shown when starting capture fails for a reason other than the permission itself (e.g. the device refused to open the microphone), so the caption does not keep claiming the control is simply idle."
+  },
+
+  "textFallbackLabel": "Escribe tu indicación",
+  "@textFallbackLabel": {
+    "description": "FR-MB06: label of the text field that is the typed equivalent of every voice action. Always available, including when the microphone permission is denied."
+  },
+
+  "textFallbackHint": "Por ejemplo: agregá a Juan Pérez como cliente",
+  "@textFallbackHint": {
+    "description": "Placeholder inside the text fallback field, echoing the register of the canonical §5.1 utterances. An example value, not copy to translate."
+  },
+
+  "textFallbackSend": "Enviar",
+  "@textFallbackSend": {
+    "description": "Tooltip and accessibility label of the text fallback's send action."
   },
 
   "connectTitle": "Conectar",

@@ -1,4 +1,5 @@
 import '../core/log.dart';
+import 'microphone_capture.dart';
 import 'voice_controller.dart';
 import 'wav_audio.dart';
 
@@ -82,6 +83,29 @@ Future<bool> runOfflineVoiceSelfCheck(
   //    end to end while every radio is off. What it transcribes depends on the
   //    room, so an empty result is not treated as a failure here — the
   //    recognizer's own output is logged either way.
+  //
+  //    The permission is read first, and the window is skipped rather than
+  //    entered without it. This is not defensive coding: on a fresh install
+  //    this step used to open the OS dialog from a background task with
+  //    nothing on screen to explain it, and the await sat there for 150 s
+  //    until somebody happened to tap Allow — a hang with no error and no
+  //    timeout. A self-check must never be the thing that asks; `FR-MB04`
+  //    puts that conversation on the capture screen, in context.
+  await voice.refreshMicrophonePermission();
+  if (voice.microphonePermission != MicrophonePermission.granted) {
+    logEvent('stt', {
+      'kind': 'mic_window',
+      'result': 'skipped',
+      'reason': 'permission_${voice.microphonePermission.name}',
+    });
+    logEvent('voice', {
+      'kind': 'selfcheck',
+      'result': passed ? 'passed' : 'failed',
+      'mic_window': 'skipped',
+    });
+    return passed;
+  }
+
   try {
     await voice.startListening();
     await Future<void>.delayed(micWindow);
