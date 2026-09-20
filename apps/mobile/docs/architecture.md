@@ -227,3 +227,41 @@ this shape; later tasks extend it instead of inventing a parallel one.
   `adb logcat -d | grep umlive` proves a transition without a screenshot.
 - `profile.base_url` is created by the fixed DDL but stays empty: the address
   lives in `flutter_secure_storage`, never in SQLite (§5).
+
+## 11. The derived registry (T3)
+
+`lib/openapi/` owns the document-to-registry derivation; `lib/core/sha256.dart`
+owns the document hash. T4 persists, T5 reports failure, the resolvers read.
+
+- **Identity is the operation key**, `"<METHOD> <path template>"` — never
+  `operationId`. springdoc deduplicates `operationId` with an unstable numeric
+  suffix (`create_6`), so it is carried for `FR-MA03` and treated as evidence.
+- **Entities are derived, never listed.** The collection route is the path with
+  its trailing `{parameter}` segments removed; operations group by it and take
+  their role from the verb plus whether the path carries parameters. Nothing
+  knows the word `cliente`.
+- **The un-folded domain name is recovered from the schema `$ref`.** The
+  generator folds routes to ASCII but leaves schema names in their original UML
+  spelling, so `DirecciónRequest`/`DirecciónResponse` fold to the route word
+  `direccion` and confirm the spoken name `Dirección` (`FR-MC07`). No generator
+  extension is emitted, and none is looked for.
+- **Field order is schema order.** `readableFields` and
+  `requiredWritableFields` follow the property declaration order of their
+  schema; `SchemaDescriptor.required` preserves the document's `required` array
+  in its declared order. `requiredWritableFields` is the required subset of the
+  create request schema, falling back to update — that list is what slot filling
+  (`FR-MC02`) walks.
+- **Response bodies live under every declared content type.** The generated
+  backend answers under `*/*` and accepts `application/json`, so the parser
+  scans content types instead of assuming one.
+- **Parsing is tolerant and never silent.** An unknown verb, an unresolved
+  `$ref`, an unsupported composition, a path with no operations, a `required`
+  name with no property: each becomes a `RegistryDiagnostic`. A document with no
+  paths is **not** an error — the backend exposes no operations and Pass 6 gives
+  that its own sentence.
+- **Discovery is wired into the probe.** `BackendProbe` reads the 2xx body,
+  `ConnectionController` parses it and exposes `apiRegistry`; the controller logs
+  one `[umlive][registry] kind=operation` line per operation, one `kind=entity`
+  line per entity, one `kind=document` line with the SHA-256, and the
+  `kind=summary` line — the KR2 evidence. `servers[0].url` is derived from the
+  request host, so it is never used as a base URL.

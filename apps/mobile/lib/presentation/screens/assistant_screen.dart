@@ -4,6 +4,7 @@ import '../../app/app_scope.dart';
 import '../../l10n/app_localizations.dart';
 import '../../net/reachability.dart';
 import '../../theme/tokens.dart';
+import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/glow_orb.dart';
@@ -75,11 +76,23 @@ class AssistantScreen extends StatelessWidget {
                 Expanded(
                   // Scrollable so the platform's largest font scale grows the
                   // turn instead of clipping it (`FR-MG06`).
-                  child: SingleChildScrollView(
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: _AssistantTurn(text: l10n.assistantGreeting),
-                    ),
+                  child: ListenableBuilder(
+                    listenable: connection,
+                    builder: (context, _) {
+                      // T3: the greeting states the discovered scope in domain
+                      // terms (`FR-MC07`); before a registry exists it falls
+                      // back to the intent-only sentence from T1.
+                      final registry = connection.apiRegistry;
+                      final greeting = registry == null
+                          ? l10n.assistantGreeting
+                          : scopeGreeting(l10n, registry);
+                      return SingleChildScrollView(
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: _AssistantTurn(text: greeting),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),

@@ -37,6 +37,7 @@ class ProbeResult {
     required this.url,
     required this.elapsedMs,
     this.statusCode,
+    this.bodyBytes,
   });
 
   final ReachabilityState state;
@@ -49,6 +50,10 @@ class ProbeResult {
 
   /// The HTTP status, or null when the probe never got a response.
   final int? statusCode;
+
+  /// The description document, read on a 2xx only. T3 (`FR-MA03`) parses it
+  /// into the registry; every other state carries null.
+  final List<int>? bodyBytes;
 
   /// True when the app has a usable backend: it answered, or it answered
   /// before and its answer is cached.

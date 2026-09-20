@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 /// `[umlive][<area>] key=value key=value`, which makes
 /// `adb logcat -d | grep umlive` a complete trace of what the app did.
 ///
-/// Areas in use: `app`, `profile`, `address`, `probe`.
+/// Areas in use: `app`, `profile`, `address`, `probe`, `registry`.
 ///
 /// Never pass a secret here: the bearer token is logged as `present`/`absent`,
 /// never by value.

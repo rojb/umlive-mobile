@@ -249,5 +249,80 @@
   "reachabilityUnreachableSentence": "No se pudo alcanzar el backend. Verifique que la dirección sea correcta y que el backend esté en marcha.",
   "@reachabilityUnreachableSentence": {
     "description": "Sentence of the unreachable state, naming the two things the user can act on."
+  },
+
+  "connectSuccessHeadline": "Backend conectado",
+  "@connectSuccessHeadline": {
+    "description": "Headline of the Connection Success state (UX spec, Pass 5), shown once the description was fetched and parsed."
+  },
+
+  "connectSuccessEntities": "Entidades descubiertas: {entities}",
+  "@connectSuccessEntities": {
+    "description": "Lists the entity names derived from the OpenAPI description. This is the discovery evidence the operator reads on the handset.",
+    "placeholders": {
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "connectSuccessOperations": "{count} operaciones disponibles",
+  "@connectSuccessOperations": {
+    "description": "Count of callable operations derived from the description (FR-MA03).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "connectSuccessNoOperations": "El backend respondió, pero no publica ninguna operación.",
+  "@connectSuccessNoOperations": {
+    "description": "Connection Success state for a description with no paths. UX spec Pass 6: an empty API is not an error and it gets its own sentence."
+  },
+
+  "connectStart": "Empezar a hablar",
+  "@connectStart": {
+    "description": "Primary action of the Connection Success state: enter the conversation."
+  },
+
+  "connectChangeAddress": "Cambiar dirección",
+  "@connectChangeAddress": {
+    "description": "Secondary action of the Connection Success state, so the screen is never a dead end."
+  },
+
+  "entityListSeparator": ", ",
+  "@entityListSeparator": {
+    "description": "Separator between entity names in a running list built from the registry."
+  },
+
+  "entityListConjunction": " y ",
+  "@entityListConjunction": {
+    "description": "Conjunction before the last entity name in a running list built from the registry."
+  },
+
+  "assistantGreetingScope": "Hola, soy UMLive Voice. Puedo trabajar con {entities}.",
+  "@assistantGreetingScope": {
+    "description": "Assistant greeting stating its scope in domain terms, derived from the discovered schema (FR-MC07, UX spec Pass 4).",
+    "placeholders": {
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "assistantGreetingScopeMore": "Hola, soy UMLive Voice. Puedo trabajar con {entities}, entre otras entidades.",
+  "@assistantGreetingScopeMore": {
+    "description": "Scope greeting when the backend exposes more entities than the three examples the UX spec allows.",
+    "placeholders": {
+      "entities": {
+        "type": "String"
+      }
+    }
+  },
+
+  "assistantGreetingNoOperations": "Hola, soy UMLive Voice. El backend no publica ninguna operación, así que todavía no hay nada que pueda hacer.",
+  "@assistantGreetingNoOperations": {
+    "description": "Assistant greeting when the description declares no operations. UX spec Pass 6: state that the backend has no operations instead of showing an empty conversation surface."
   }
 }

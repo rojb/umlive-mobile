@@ -7,6 +7,8 @@ import '../data/registry_repository.dart';
 import '../net/backend_address.dart';
 import '../net/backend_probe.dart';
 import '../net/reachability.dart';
+import '../openapi/registry.dart';
+import '../openapi/registry_parser.dart';
 
 /// The single owner of connection state.
 ///
@@ -30,6 +32,7 @@ class ConnectionController extends ChangeNotifier {
   String? _token;
   ReachabilityState _reachability = ReachabilityState.neverConnected;
   ProbeResult? _lastProbe;
+  ApiRegistry? _apiRegistry;
   AddressProblem? _addressProblem;
   bool _probing = false;
 
@@ -49,6 +52,12 @@ class ConnectionController extends ChangeNotifier {
 
   /// The evidence behind [reachability], for the technical detail of `FR-ME06`.
   ProbeResult? get lastProbe => _lastProbe;
+
+  /// The registry derived from the backend's own description (`FR-MA03`).
+  ///
+  /// Null until a probe has answered with a document this session. T3 keeps it
+  /// in memory only: persisting it is T4's job (`FR-MA04`).
+  ApiRegistry? get apiRegistry => _apiRegistry;
 
   /// Why the last submitted address was refused, or null.
   AddressProblem? get addressProblem => _addressProblem;
@@ -185,11 +194,82 @@ class ConnectionController extends ChangeNotifier {
       'state': result.state.name,
       'ms': result.elapsedMs,
     });
+
+    // T3: a backend that answered described itself. Parse the bytes the probe
+    // already read into the registry the resolvers read; any other state means
+    // no registry this session (T4 adds the cached one).
+    if (result.state == ReachabilityState.connected) {
+      final body = result.bodyBytes;
+      if (body == null) {
+        _apiRegistry = null;
+      } else {
+        final parsed = RegistryParser.parse(body);
+        _apiRegistry = parsed.registry;
+        _logRegistry(parsed);
+      }
+    } else {
+      _apiRegistry = null;
+    }
+
     notifyListeners();
 
     if (result.state == ReachabilityState.connected && profileId != null) {
       await _profiles.touchConnectedAt(profileId);
     }
+  }
+
+  /// KR2 evidence: one line per derived operation, then the summary.
+  ///
+  /// `method` and `path` are what the emitted controllers can be compared
+  /// against; the summary counts are what proves 100 % coverage instead of
+  /// spot-checking. A diagnostic is logged too, so a document the parser could
+  /// not fully read is visible from `adb logcat` and never silent.
+  void _logRegistry(RegistryParseResult parsed) {
+    final registry = parsed.registry;
+    // One line pinning the document itself: the version the parser accepted and
+    // the SHA-256 T4 compares on the next connect (`FR-MA07`).
+    logEvent('registry', {
+      'kind': 'document',
+      'openapi': registry.openapiVersion,
+      'hash': registry.documentHash,
+    });
+    for (final operation in registry.operations) {
+      logEvent('registry', {
+        'kind': 'operation',
+        'method': operation.method,
+        'path': operation.path,
+        'operationId': operation.operationId,
+      });
+    }
+    // One line per entity: the recovered un-folded name, the route it groups
+    // under, and the required writable fields in schema order. This is the
+    // evidence for `FR-MC07` (vocabulary) and `FR-MC02` (slot filling).
+    for (final entity in registry.entities) {
+      logEvent('registry', {
+        'kind': 'entity',
+        'name': entity.name,
+        'route': entity.collectionRoute,
+        'required': entity.requiredWritableFields
+            .map((field) => field.name)
+            .join(','),
+      });
+    }
+    for (final diagnostic in registry.diagnostics) {
+      logEvent('registry', {
+        'kind': 'diagnostic',
+        'code': diagnostic.code,
+        'path': diagnostic.path,
+        'method': diagnostic.method,
+      });
+    }
+    logEvent('registry', {
+      'kind': 'summary',
+      'operations': registry.operations.length,
+      'entities': registry.entities.length,
+      'paths': registry.pathCount,
+      'diagnostics': registry.diagnostics.length,
+      'ms': parsed.elapsedMs,
+    });
   }
 
   @override

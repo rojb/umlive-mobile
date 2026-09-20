@@ -4,8 +4,10 @@ import '../../app/app_scope.dart';
 import '../../l10n/app_localizations.dart';
 import '../../net/backend_address.dart';
 import '../../net/reachability.dart';
+import '../../openapi/registry.dart';
 import '../../theme/tokens.dart';
 import '../connection_controller.dart';
+import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/reachability_indicator.dart';
@@ -28,6 +30,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   bool _advancedOpen = false;
   bool _prefilled = false;
+
+  /// True while the user is re-entering an address after a successful connect,
+  /// so the Success state is never a dead end.
+  bool _editingAddress = false;
 
   /// The typed text, normalized as it changes, so the cleartext warning appears
   /// before the user commits to the address.
@@ -66,13 +72,88 @@ class _ConnectScreenState extends State<ConnectScreen> {
             listenable: connection,
             builder: (context, _) => SingleChildScrollView(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              child: connection.isProbing
-                  ? _buildLoading(context, l10n, connection)
-                  : _buildForm(context, l10n, connection),
+              child: _content(context, l10n, connection),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// UX spec, Pass 5 — the three states of the screen, in priority order.
+  Widget _content(
+    BuildContext context,
+    AppLocalizations l10n,
+    ConnectionController connection,
+  ) {
+    if (connection.isProbing) {
+      return _buildLoading(context, l10n, connection);
+    }
+    final registry = connection.apiRegistry;
+    if (!_editingAddress && registry != null && connection.canProceed) {
+      return _buildSuccess(context, l10n, registry);
+    }
+    return _buildForm(context, l10n, connection);
+  }
+
+  /// UX spec, Pass 5 — Connection *Success*: the entity names the app derived
+  /// and how many operations it can call. This is where discovery becomes
+  /// visible to the operator (`FR-MA03`, Pass 6).
+  Widget _buildSuccess(
+    BuildContext context,
+    AppLocalizations l10n,
+    ApiRegistry registry,
+  ) {
+    final textTheme = Theme.of(context).textTheme;
+    final names = registry.entities.map((entity) => entity.name).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: AppColors.success),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                l10n.connectSuccessHeadline,
+                style: textTheme.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (registry.operations.isEmpty)
+          Text(
+            l10n.connectSuccessNoOperations,
+            style: textTheme.bodyMedium,
+          )
+        else ...[
+          Text(
+            l10n.connectSuccessEntities(joinEntityNames(l10n, names)),
+            style: textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            l10n.connectSuccessOperations(registry.operations.length),
+            style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xl),
+        FilledButton(
+          onPressed: () => Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(AppRoutes.assistant, (route) => false),
+          child: Text(l10n.connectStart),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          onPressed: () => setState(() => _editingAddress = true),
+          child: Text(l10n.connectChangeAddress),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const ReachabilityIndicator(),
+      ],
     );
   }
 
@@ -209,17 +290,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   Future<void> _submit() async {
     final connection = AppScope.of(context).connection;
-    final navigator = Navigator.of(context);
+    // The result does not navigate away any more: a backend that answered now
+    // has a Success state to show, and its scope is the point of discovery.
     final usable = await connection.connect(
       rawAddress: _addressController.text,
       token: _tokenController.text,
     );
     if (!mounted) return;
-    // Only a backend that answered (or one whose earlier answer is cached)
-    // leads into the conversation; a refusal stays here with its reason.
-    if (usable) {
-      navigator.pushNamedAndRemoveUntil(AppRoutes.assistant, (route) => false);
-    }
+    setState(() => _editingAddress = !usable);
   }
 
   static String _problemSentence(AppLocalizations l10n, AddressProblem problem) {

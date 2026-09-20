@@ -15,6 +15,11 @@ class BackendProbe {
   /// FR-MA02 fixes 10 s. Exposed so a caller can pass a shorter budget.
   final Duration timeout;
 
+  /// Upper bound on the description document this probe will read, so a
+  /// misbehaving backend cannot make the app buffer without limit. The live
+  /// fixture document is ~16 KB.
+  static const int maxBodyBytes = 8 * 1024 * 1024;
+
   HttpClient? _client;
   int _generation = 0;
 
@@ -36,8 +41,11 @@ class BackendProbe {
     final generation = ++_generation;
 
     int? status;
+    List<int>? body;
     try {
-      status = await _send(client, uri, token).timeout(timeout);
+      final sent = await _send(client, uri, token).timeout(timeout);
+      status = sent.status;
+      body = sent.body;
     } on Object {
       // Timeout, DNS failure, refused connection, a second redirect, a socket
       // closed by cancel(): all of them mean "no answer", which is a state.
@@ -59,6 +67,7 @@ class BackendProbe {
       url: uri.toString(),
       elapsedMs: stopwatch.elapsedMilliseconds,
       statusCode: status,
+      bodyBytes: body,
     );
   }
 
@@ -73,7 +82,11 @@ class BackendProbe {
     }
   }
 
-  Future<int> _send(HttpClient client, Uri uri, String? token) async {
+  Future<({int status, List<int>? body})> _send(
+    HttpClient client,
+    Uri uri,
+    String? token,
+  ) async {
     final request = await client.getUrl(uri);
     // FR-MA02: follow one redirect — a tunnel or a reverse proxy may redirect
     // once — and no more.
@@ -84,8 +97,23 @@ class BackendProbe {
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
     }
     final response = await request.close();
-    await response.drain<void>();
-    return response.statusCode;
+    final status = response.statusCode;
+
+    // The 2xx body is the OpenAPI document, and T3 parses exactly these bytes.
+    // Anything else is drained and discarded: a status is all that state needs.
+    List<int>? body;
+    if (status >= 200 && status < 300) {
+      final bytes = <int>[];
+      await for (final chunk in response) {
+        bytes.addAll(chunk);
+        if (bytes.length >= maxBodyBytes) break;
+      }
+      if (bytes.length > maxBodyBytes) bytes.length = maxBodyBytes;
+      body = bytes;
+    } else {
+      await response.drain<void>();
+    }
+    return (status: status, body: body);
   }
 
   static ReachabilityState _classify(
