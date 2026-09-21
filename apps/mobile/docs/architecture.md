@@ -1236,3 +1236,58 @@ target is never inferred.
   sentence is the tooltip and, in every state but *connected*, the block under the app
   bar); and the text fallback's send glyph keeps the accent colour while the control is
   disabled, which is a colour-state wart rather than a contrast failure.
+
+## 30. The capture control: three states, and motion that never lies (T26)
+
+- **The owner's request, and what it changed.** The control used to be one big orb
+  that was always on screen. It is now three states: **idle** is a composer — the
+  instruction field with a **microphone icon beside the send icon** — and there is no
+  orb at rest; **dictating** hides the field and both icons and shows the orb moving
+  with the voice; **speaking** keeps the composer and puts a **small orb in the
+  bottom-right corner of the conversation area**. Tapping the orb while dictating
+  returns the composer **with whatever text it already held**, and tapping the small
+  orb stops the speech.
+- **`FR-MG05` is the rule the whole thing is built on.** Motion means the microphone
+  is open. The idle state is provably static — two screenshots of its region a second
+  apart hash identically, while the same region during dictation differs — and the
+  *kind* of motion identifies the state: dictating follows the amplitude it is handed
+  (no clock at all, so a silent room means a still orb, which is correct), and speaking
+  runs a steady clock-driven rhythm. Two states that differ by rhythm and position can
+  never be confused, and neither of them is carried by a hue (`FR-MG04`).
+- **Speaking wins, and there is only ever one indicator.** If the assistant starts
+  speaking while the microphone is open, the big orb wears the speaking motion and the
+  corner orb is not drawn at all; the corner orb exists only for `isSpeaking &&
+  !isListening`.
+- **A tap on a voice control while the assistant speaks stops the speech and never
+  opens the microphone.** That is the UX spec's "stop speaking" affordance and, more
+  importantly, it closes a real loop: a microphone opened under a loudspeaker hears
+  the assistant. Measured: the tap produced `[umlive][tts] kind=stop result=stopped`
+  and **zero** `[umlive][stt] kind=capture` lines. `stopSpeaking()` cancels the
+  in-flight playback through the synthesis layer's own stop and drops everything our
+  chain still had queued, which it does with a speech-epoch guard.
+- **The corner orb is small on purpose, and its target is not.** The owner asked for
+  another 20 % off, so the visual diameter is `AppSizes.speakingOrb` (38 dp) while the
+  hit area stays `AppSizes.minTouchTarget` (48 dp): the visual is what he asked for and
+  the target is what a finger needs. Its visible caption was removed at his request as
+  well, so the state is now motion plus position — and the semantics label, which stays,
+  is what keeps the state announced rather than visual-only (`FR-MG03`). That label is
+  also **activatable**: the node carries `button` and `onTap`, so a screen reader can
+  stop the speech instead of merely hearing about it.
+- **Verified on `TFY-LX3`, and then confirmed by using it.** Idle: no orb node at all,
+  the microphone icon before the send icon in the field's trailing row, and identical
+  region hashes a second apart. Dictating: field and both icons gone, orb present with
+  the live caption, `[umlive][stt] kind=capture result=started`, and after the tap the
+  composer back with `text="prueba de texto"` intact. Speaking: a 48 dp box at the
+  conversation area's bottom-right corner with the orb inside and the whole region
+  changing between screenshots taken inside one speaking window, then byte-identical
+  once the speech was stopped. The product owner then used it on the handset and
+  confirmed it behaves as asked.
+- **One anomaly, recorded as unexplained rather than closed.** In the first verification
+  a capture started with **no tap at all**, immediately as a spoken sentence ended
+  (`[umlive][stt] kind=capture result=started`, capturing a stray "Hola." and submitting
+  it as a turn). The run that was chasing it — idle, one spoken sentence, no input for
+  forty seconds — was cut short by a session shutdown before it could report, so the
+  cause is unknown: a stray input event from the harness and a real self-start are both
+  consistent with what was seen. It is written down here because a microphone that opens
+  on its own is exactly the class of failure `FR-MG05` exists to prevent, and the next
+  session should reproduce it deliberately before trusting the control in a demo.

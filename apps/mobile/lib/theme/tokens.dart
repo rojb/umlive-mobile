@@ -116,6 +116,19 @@ abstract final class AppSizes {
 
   /// Minimum touch target, per Material and per the accessibility pass.
   static const double minTouchTarget = 48;
+
+  /// Visual diameter of the small speaking orb in the conversation's corner.
+  ///
+  /// The owner, seeing the corner indicator on the handset, asked for it to be
+  /// 20 % smaller: the orb used to draw [minTouchTarget] itself, so this is
+  /// 48 × 0.8 = 38.4, rounded to 38.
+  ///
+  /// **This number is the visual, not the target.** 38 dp is below the
+  /// Material floor for a control, so the corner orb wraps this circle in a
+  /// [minTouchTarget]-sized box: the eye reads the smaller orb the owner asked
+  /// for, and the finger still gets the 48 dp a touch needs. The two values
+  /// differ because they answer different questions.
+  static const double speakingOrb = 38;
 }
 
 /// Spacing scale. Comfortable rather than compact for anything interactive.

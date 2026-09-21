@@ -66,6 +66,14 @@ enum VoiceProblem {
 /// must never travel back as an exception that could take a turn down
 /// (`FR-MD03`) — the conversation speaks fire-and-forget, treats a failure as
 /// a log line, and never lets speech delay, fail or reorder a turn.
+///
+/// **It owns the speaking fact** (`T26`). [isSpeaking] is the one authority on
+/// whether the assistant is talking right now: it is `true` from the moment a
+/// sentence is accepted into the speech chain until the last queued link has
+/// finished playing, and this notifier fires on both edges so a surface can
+/// follow the transition without polling. The presentation layer asks this
+/// object and never counts utterances on its own, and [stopSpeaking] is the
+/// only way the operator cuts playback short.
 class VoiceController extends ChangeNotifier implements SpeechSink {
   VoiceController({
     SherpaModelProvisioner? provisioner,
@@ -126,6 +134,20 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
   }
 
   bool get isListening => _transcriber?.isListening ?? false;
+
+  /// Whether the assistant is speaking right now (`T26`).
+  ///
+  /// This is the documented contract of the speaking state, not an
+  /// implementation detail leaking out: it is `true` from the moment [speak]
+  /// accepts a sentence into the chain until the last counted link has
+  /// finished playing, and `false` again once the chain drains. The only field
+  /// behind it is the chain's own pending count, so there is no second speaking
+  /// flag that could disagree with this getter.
+  ///
+  /// Listeners are notified on **both edges** — the first accepted sentence and
+  /// the last finished one — because the capture surface renders a different
+  /// motion and a different caption for each state (`FR-MG04`, `FR-MG05`).
+  bool get isSpeaking => _speechPending > 0;
 
   /// Provisions the model, builds the recognizer and pins a speech voice.
   ///
@@ -277,10 +299,21 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
   /// the sentence behind a failed one still plays.
   Future<void> _speechChain = Future<void>.value();
 
-  /// Utterances requested but not yet finished playing. It exists only to make
-  /// the serialization observable: a call that arrives while this is non-zero
-  /// is queued behind one that is still playing.
+  /// Utterances requested but not yet finished playing. It makes the
+  /// serialization observable — a call that arrives while this is non-zero is
+  /// queued behind one that is still playing — and it is the **only** field
+  /// behind [isSpeaking]: a sentence is being said exactly while at least one
+  /// link of the chain has not finished.
   int _speechPending = 0;
+
+  /// Invalidates the links that were already queued when [stopSpeaking] ran.
+  ///
+  /// The chain is built at [speak] time, so every link captures the epoch it
+  /// was appended under and becomes a no-op once the epoch moves on. That is
+  /// what makes a stop reach the sentences still waiting their turn: cancelling
+  /// only the utterance the engine is playing would let the queue behind it
+  /// start playing again, which is the opposite of what the operator asked for.
+  int _speechEpoch = 0;
 
   /// How long [speak] waits for synthesis before it drops the sentence.
   ///
@@ -396,11 +429,19 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
         'pending': true,
       });
     }
+    final int epoch = _speechEpoch;
     _speechPending += 1;
+    // The speaking edge: `isSpeaking` just turned true for a listener that
+    // renders it (`T26`).
+    notifyListeners();
 
     // Appending is the serialization: this link does not begin until every
     // sentence before it has finished playing, and the next call waits on it.
     final spoken = _speechChain.then((_) async {
+      // A stop that arrived while this sentence waited its turn cancels it.
+      // Its slot was already settled by [stopSpeaking], so there is nothing
+      // left to count here — the sentence is simply never said.
+      if (epoch != _speechEpoch) return;
       try {
         await _speech.speak(text);
       } on Object catch (error) {
@@ -409,12 +450,64 @@ class VoiceController extends ChangeNotifier implements SpeechSink {
           'error': error.runtimeType.toString(),
         });
       } finally {
-        _speechPending -= 1;
+        // Only a link that still belongs to the current epoch may settle the
+        // count: after a stop the count is already back to zero, and letting a
+        // cancelled link decrement it would leave it negative and make the next
+        // sentence look like it is not speaking.
+        if (epoch == _speechEpoch) {
+          _speechPending -= 1;
+          // The speaking edge, other direction, when the last sentence ended.
+          notifyListeners();
+        }
       }
     });
 
     _speechChain = spoken;
     return spoken;
+  }
+
+  /// Stops the speech in flight and drops every sentence still queued behind it
+  /// (`T26`).
+  ///
+  /// This is the UX spec's *Stop speaking / cancel capture* affordance, and it
+  /// exists for a correctness reason before an aesthetic one: a microphone
+  /// opened while the speaker is talking hears the assistant, so a tap during
+  /// speech has to silence the app instead of opening the microphone.
+  ///
+  /// What it does, exactly:
+  /// - cancels the utterance the platform engine is playing through the
+  ///   synthesis layer's own stop (`PlatformSpeech.stop`, the engine's `stop`);
+  /// - invalidates the links still waiting their turn, so the queue behind the
+  ///   cancelled sentence does not start playing — the chain is serialized at
+  ///   [speak] time and each link ignores itself once [_speechEpoch] moves on;
+  /// - settles [isSpeaking] back to `false` immediately, and notifies listeners
+  ///   on that edge, so the orb leaves its speaking motion without waiting for
+  ///   the engine to acknowledge the stop.
+  ///
+  /// It always logs exactly one `[umlive][tts] kind=stop` line, whether or not
+  /// there was anything playing, because a tap the operator used to silence the
+  /// app is evidence a reviewer has to be able to find.
+  Future<void> stopSpeaking() async {
+    final int pending = _speechPending;
+    _speechEpoch += 1;
+    _speechPending = 0;
+    if (pending > 0) notifyListeners();
+    try {
+      await _speech.stop();
+    } on Object catch (error) {
+      logEvent('tts', {
+        'kind': 'stop',
+        'result': 'failed',
+        'error': error.runtimeType.toString(),
+        'pending': pending,
+      });
+      return;
+    }
+    logEvent('tts', {
+      'kind': 'stop',
+      'result': 'stopped',
+      'pending': pending,
+    });
   }
 
   @override

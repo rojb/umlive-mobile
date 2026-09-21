@@ -13,17 +13,27 @@
 
   "captureUnavailableCaption": "El micrófono todavía no está disponible",
   "@captureUnavailableCaption": {
-    "description": "Caption under the capture orb while the voice engine itself is not ready yet (still provisioning, or unavailable on this install). The recognizer readiness banner above already states the detailed reason; this caption only says the control cannot be used yet."
+    "description": "Caption above the instruction field while the voice engine itself is not ready yet (still provisioning, or unavailable on this install), and the reason the field's microphone icon refuses the tap. The recognizer readiness banner above already states the detailed reason; this caption only says the control cannot be used yet. It sits with the field because the orb that used to carry it at rest is gone from the idle screen — nothing on this surface moves while the microphone is closed (FR-MG05)."
   },
 
-  "captureOrbSemantics": "Control de captura de voz. El micrófono todavía no está disponible.",
-  "@captureOrbSemantics": {
-    "description": "Screen-reader label for the capture control while the voice engine is not ready. FR-MG03/FR-MG04: every control announces its own state, and the caption alone is not enough because the orb carries no text."
+  "captureMicrophoneLabel": "Dictado por voz. Tocar para hablar.",
+  "@captureMicrophoneLabel": {
+    "description": "Tooltip and screen-reader label of the microphone action in the instruction field's trailing row — the capture-control redesign's idle state — while the engine is ready, the permission is granted and nothing is being captured. FR-MG02: dictation sits beside the send action as the typed instruction's alternative, and FR-MG03: the small icon is the control, so its label has to say what it is and what a tap does, because the glyph carries no text."
   },
 
-  "captureIdleCaption": "Listo para escuchar",
-  "@captureIdleCaption": {
-    "description": "Caption under the capture orb once the engine is ready, the microphone permission is granted, and nothing is being captured yet."
+  "captureMicrophoneUnavailable": "Dictado por voz. El micrófono todavía no está disponible.",
+  "@captureMicrophoneUnavailable": {
+    "description": "Tooltip and screen-reader label of the instruction field's microphone action while the voice engine is not ready (the capture-control redesign; FR-MG03, FR-MG04). The action refuses the tap and this label is where the reason travels — a disabled control that does not say why it is disabled is the silent failure FR-MB03 forbids. Same function as the label the capture orb carried in this state before the redesign, moved onto the icon that replaced it."
+  },
+
+  "captureMicrophonePermissionNeeded": "Dictado por voz. Se necesita el permiso del micrófono. Tocar para solicitarlo.",
+  "@captureMicrophonePermissionNeeded": {
+    "description": "Tooltip and screen-reader label of the instruction field's microphone action when the microphone permission has not been granted yet, or was denied but can still be requested again (FR-MB04, capture-control redesign). It names the reason and the action the tap will take, and the visible form of the same explanation is microphonePermissionRationale above the field: explained before asked, in both channels."
+  },
+
+  "captureMicrophonePermissionBlocked": "Dictado por voz. El micrófono está bloqueado para esta aplicación. Se habilita desde los ajustes del sistema.",
+  "@captureMicrophonePermissionBlocked": {
+    "description": "Tooltip and screen-reader label of the instruction field's microphone action once the microphone permission was permanently denied (FR-MB04, capture-control redesign). Android answers `denied` with no dialog in this case, so the app cannot ask again; the label says why the tap is refused and where the state can still be changed, and microphonePermissionPermanentlyDeniedCaption above the field carries the same fact next to the control that opens the system settings."
   },
 
   "captureListeningCaption": "Escuchando…",
@@ -31,29 +41,24 @@
     "description": "Empty-state label of the live transcript while listening and no partial has arrived yet."
   },
 
-  "captureOrbSemanticsReady": "Control de captura de voz. Listo para escuchar. Tocar para hablar.",
-  "@captureOrbSemanticsReady": {
-    "description": "Screen-reader label for the capture control when it is armed and idle."
+  "captureSpeakingCaption": "Hablando…",
+  "@captureSpeakingCaption": {
+    "description": "T26, FR-MG03: the written half of the speaking state. It is shown under the orb in the composer's place in the one state where listening and speaking overlap — the assistant starts speaking while the microphone is open, and that orb takes the speaking motion. The small orb in the conversation's bottom-right corner deliberately no longer carries it: that indicator is the clock-driven motion plus its position, and the screen-reader label is what announces the state there. FR-MG03 forbids a voice-only channel, so the caption says in writing what the clock-driven motion says visually, and it is what makes the speaking state tellable from listening without colour (FR-MG04) — the motion itself is the other half. The ellipsis marks the state as ongoing, the same way captureListeningCaption does."
   },
 
   "captureOrbSemanticsListening": "Control de captura de voz. Escuchando. Tocar de nuevo para detener.",
   "@captureOrbSemanticsListening": {
-    "description": "Screen-reader label for the capture control while the microphone is open."
+    "description": "Screen-reader label for the orb that takes the composer's place while the microphone is open (FR-MG02, capture-control redesign), which is the one control on screen in that state."
   },
 
-  "captureOrbSemanticsPermissionNeeded": "Control de captura de voz. Se necesita el permiso del micrófono. Tocar para solicitarlo.",
-  "@captureOrbSemanticsPermissionNeeded": {
-    "description": "Screen-reader label for the capture control when the microphone permission has not been granted yet, or was denied but can still be requested again (FR-MB04)."
-  },
-
-  "captureOrbSemanticsPermissionBlocked": "Control de captura de voz. El micrófono está bloqueado para esta aplicación. Abrir los ajustes del sistema para habilitarlo.",
-  "@captureOrbSemanticsPermissionBlocked": {
-    "description": "Screen-reader label for the capture control once the microphone permission was permanently denied (FR-MB04)."
+  "captureOrbSemanticsSpeaking": "Control de voz. El asistente está hablando. Tocar para detener la voz.",
+  "@captureOrbSemanticsSpeaking": {
+    "description": "T26, UX spec Pass 3 'Stop speaking / cancel capture', FR-MG03: screen-reader label of the speaking state, and the capture-control redesign uses it in the three places that state can be reached — the small orb in the conversation's corner, the microphone icon of the idle composer, and the orb in the composer's place when the assistant starts speaking while the microphone is open. Exactly one of the three is on screen at a time. It says what the control is, that the assistant is speaking, and what a tap does — stopping the voice, never opening the microphone. FR-MG04: the state is carried by words and not by a hue, so a screen reader hears the same state the motion and the caption show."
   },
 
   "microphonePermissionRationale": "UMLive Voice necesita acceso al micrófono para escuchar las indicaciones por voz. Tocar el micrófono para conceder el permiso.",
   "@microphonePermissionRationale": {
-    "description": "The FR-MB04 explanation shown in writing before the microphone permission is requested, and spoken through VoiceController.speak at the moment the request is made. Also shown, unchanged, after an ordinary (non-permanent) denial, since it still describes what tapping again will do."
+    "description": "The FR-MB04 explanation shown in writing above the instruction field before the microphone permission is requested, and spoken through VoiceController.speak at the moment the request is made. It shares its wording with the label of the microphone icon in the field's trailing row, which is the control it tells the operator to tap. Also shown, unchanged, after an ordinary (non-permanent) denial, since it still describes what tapping again will do."
   },
 
   "microphonePermissionPermanentlyDeniedCaption": "El micrófono está bloqueado para esta aplicación y ya no se puede volver a pedir el permiso desde aquí. Se habilita desde los ajustes del sistema, o se escribe la indicación.",

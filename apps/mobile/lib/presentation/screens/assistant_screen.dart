@@ -9,6 +9,7 @@ import '../discovered_scope.dart';
 import '../routes.dart';
 import '../widgets/app_background.dart';
 import '../widgets/capture_section.dart';
+import '../widgets/glow_orb.dart';
 import '../widgets/reachability_indicator.dart';
 import '../widgets/record_cards.dart';
 import '../widgets/response_focus.dart';
@@ -57,6 +58,22 @@ import '../widgets/voice_status_banner.dart';
 /// conversation read by the Author and the Evaluator, which is why the toggle
 /// lives in Settings and the block appears under the turns that are already on
 /// screen the moment it is flipped.
+///
+/// The capture control's **speaking** state is drawn in this screen's own corner
+/// (`T26`, `FR-MG03`). While the assistant talks, the composer below stays
+/// exactly as it is when idle and a small orb appears in the bottom-right of
+/// the conversation area. It is a `Positioned` inside a `Stack` over the turn
+/// list on purpose: an indicator
+/// that pushed the turns it describes would move the answer the operator is
+/// reading, and the corner it takes is the empty right margin of a left-aligned
+/// assistant answer. The orb is the same widget as the listening one at a
+/// smaller size, so the speaking motion is one implementation and not two.
+///
+/// One precedence rule keeps the two indicators from ever doubling: this corner
+/// orb renders only while the assistant speaks **and** the microphone is closed.
+/// If the assistant starts speaking while the microphone is open, the orb in the
+/// composer's place takes the speaking motion — `GlowOrb` gives speaking
+/// precedence — and no second indicator is drawn.
 class AssistantScreen extends StatefulWidget {
   const AssistantScreen({super.key});
 
@@ -171,59 +188,95 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 // the recognizer is built and an offline Spanish voice pinned.
                 const VoiceStatusBanner(),
                 Expanded(
-                  // Scrollable so the platform's largest font scale grows the
-                  // turn instead of clipping it (`FR-MG06`).
-                  child: ListenableBuilder(
-                    // Both listenables matter here: `connection` decides the
-                    // cannot-work gate below, `conversation` owns the turn
-                    // list itself (`T11`) — including the greeting, which is
-                    // now [turns].first rather than a special case rendered
-                    // outside it.
-                    listenable: Listenable.merge([connection, conversation]),
-                    builder: (context, _) {
-                      final registry = connection.apiRegistry;
-                      if (registry == null && !connection.isProbing) {
-                        // Pass 6, first launch offline with no cached registry:
-                        // say plainly that it has never connected and cannot
-                        // work yet. A conversation surface that can only fail
-                        // is worse than none, so none is drawn.
-                        return _CannotWork(
-                          text: l10n.assistantCannotWork,
-                          actionLabel: l10n.assistantOpenConnect,
-                          onAction: () => Navigator.of(
-                            context,
-                          ).pushNamed(AppRoutes.connect),
-                        );
-                      }
-                      final turns = conversation.turns;
-                      // The key is the turn count plus the newest turn's text: the text is
-                      // what changes when a pending turn settles into its answer, and the
-                      // count is what changes when a turn is added. The call is registered
-                      // after every build and does nothing unless the key changed; the jump
-                      // itself runs post-frame, against a laid-out list, so
-                      // `maxScrollExtent` is read at the only moment it is correct — at any
-                      // font scale (`FR-MG06`).
-                      final newestText = turns.isEmpty
-                          ? ''
-                          : switch (turns.last) {
-                              UserTurn(:final text) => text,
-                              AssistantTurn(:final text) => text,
-                            };
-                      _followNewestTurn('${turns.length}|$newestText');
-                      return SingleChildScrollView(
-                        controller: _conversationScroll,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var index = 0; index < turns.length; index++) ...[
-                              if (index > 0)
-                                const SizedBox(height: AppSpacing.sm),
-                              _TurnBubble(turn: turns[index]),
-                            ],
-                          ],
+                  child: Stack(
+                    // The small orb's halo is painted outside its box, and
+                    // clipping it would turn the glow this design language is
+                    // built on into a hard edge.
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Scrollable so the platform's largest font scale grows the
+                      // turn instead of clipping it (`FR-MG06`).
+                      Positioned.fill(
+                        child: ListenableBuilder(
+                          // Both listenables matter here: `connection` decides the
+                          // cannot-work gate below, `conversation` owns the turn
+                          // list itself (`T11`) — including the greeting, which
+                          // is now [turns].first rather than a special case
+                          // rendered outside it.
+                          listenable: Listenable.merge([connection, conversation]),
+                          builder: (context, _) {
+                            final registry = connection.apiRegistry;
+                            if (registry == null && !connection.isProbing) {
+                              // Pass 6, first launch offline with no cached
+                              // registry: say plainly that it has never connected
+                              // and cannot work yet. A conversation surface that
+                              // can only fail is worse than none, so none is
+                              // drawn.
+                              return _CannotWork(
+                                text: l10n.assistantCannotWork,
+                                actionLabel: l10n.assistantOpenConnect,
+                                onAction: () => Navigator.of(
+                                  context,
+                                ).pushNamed(AppRoutes.connect),
+                              );
+                            }
+                            final turns = conversation.turns;
+                            // The key is the turn count plus the newest turn's
+                            // text: the text is what changes when a pending turn
+                            // settles into its answer, and the count is what
+                            // changes when a turn is added. The call is
+                            // registered after every build and does nothing
+                            // unless the key changed; the jump itself runs
+                            // post-frame, against a laid-out list, so
+                            // `maxScrollExtent` is read at the only moment it is
+                            // correct — at any font scale (`FR-MG06`).
+                            final newestText = turns.isEmpty
+                                ? ''
+                                : switch (turns.last) {
+                                    UserTurn(:final text) => text,
+                                    AssistantTurn(:final text) => text,
+                                  };
+                            _followNewestTurn('${turns.length}|$newestText');
+                            return SingleChildScrollView(
+                              controller: _conversationScroll,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < turns.length;
+                                    index++
+                                  ) ...[
+                                    if (index > 0)
+                                      const SizedBox(height: AppSpacing.sm),
+                                    _TurnBubble(turn: turns[index]),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
+                      ),
+                      // The speaking state, in the conversation's corner. It
+                      // never shifts the list, and it is not drawn while the
+                      // microphone is open: in that state the orb in the
+                      // composer's place is the one indicator, and it wears the
+                      // speaking motion itself.
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: ListenableBuilder(
+                          listenable: voice,
+                          builder: (context, _) =>
+                              voice.isSpeaking && !voice.isListening
+                              ? _SpeakingCornerOrb(
+                                  label: l10n.captureOrbSemanticsSpeaking,
+                                  onTap: () => voice.stopSpeaking(),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 // Response focus (UX spec Pass 2 and Pass 3): during slot
@@ -269,6 +322,70 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 const SizedBox(height: AppSpacing.xl),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The assistant's speaking state, said in the conversation's own corner
+/// (`T26`, `FR-MG03`).
+///
+/// It is the same [GlowOrb] the listening state uses, at [AppSizes.speakingOrb]
+/// instead of [AppSizes.orb]: the motion is one implementation and only the size
+/// changes. The two numbers are deliberately different — a 38 dp circle is below
+/// the Material floor for a control, so the orb sits inside a
+/// [AppSizes.minTouchTarget]-sized box: the eye reads the size the owner asked
+/// for, the finger gets the 48 dp a touch needs. `HitTestBehavior.opaque` makes
+/// that whole 48 dp square the target and not only the painted circle inside it.
+///
+/// **The visible indicator is the motion plus the position, and the label is
+/// what keeps the state announced** (`FR-MG03`). The owner asked for the written
+/// `Hablando…` caption beside the orb to be removed; what remains on the screen is
+/// the clock-driven pulse in the conversation's bottom-right corner, and
+/// [AppLocalizations.captureOrbSemanticsSpeaking] says the same state to a screen
+/// reader. The big orb in the composer's place keeps its own written caption for
+/// the one state where that orb takes the speaking motion.
+///
+/// **The control is activatable, not merely announced.** The node is a real
+/// button: `onTap` and `button` are set on the semantics itself, so a screen
+/// reader can stop the speech. A state a screen-reader user can hear but cannot
+/// act on would be a voice action with no touch equivalent for that user, which
+/// is exactly what `FR-MG03` forbids. The label sits on this one node and the
+/// child visual is excluded, so the state is announced once and not twice.
+class _SpeakingCornerOrb extends StatelessWidget {
+  const _SpeakingCornerOrb({required this.label, required this.onTap});
+
+  /// Screen-reader label: it names the state and what a tap does, the same way
+  /// the orb in the composer's place does while the microphone is open.
+  final String label;
+
+  /// Stops the speech. It never opens the microphone: the tap reaches
+  /// `VoiceController.stopSpeaking` directly, and no capture path is behind it.
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      // One label, one node: `excludeSemantics` drops the child visual so the
+      // state cannot be announced twice, and `onTap` + `button` are what turn
+      // this from a label a screen-reader user can only listen to into the
+      // control they can activate.
+      container: true,
+      excludeSemantics: true,
+      button: true,
+      label: label,
+      onTap: onTap,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        // The 48 dp hit area around the 38 dp visual: the box is the target,
+        // the circle inside it is what the owner asked to see.
+        child: const SizedBox.square(
+          dimension: AppSizes.minTouchTarget,
+          child: Center(
+            child: GlowOrb(size: AppSizes.speakingOrb, speaking: true),
           ),
         ),
       ),
