@@ -287,15 +287,24 @@ class _ConnectScreenState extends State<ConnectScreen> {
     final problem = connection.addressProblem;
     final cleartext =
         (_typedAddress?.isCleartext ?? false) || connection.showsCleartextWarning;
+    // The same form serves two arrivals, and only one of them is a cold start:
+    // this screen is also reached from Settings and from «Cambiar dirección»,
+    // with the stored address already in the field. Announcing "todavía no hay
+    // ningún backend conectado" there contradicted both that field and the
+    // «Conectado» card below it, on the same screen.
+    final changing = connection.hasStoredProfile;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // UX spec, Pass 4 — first launch: an address and nothing else.
-        Text(l10n.connectExplanation, style: textTheme.titleMedium),
+        Text(
+          changing ? l10n.connectExplanationChange : l10n.connectExplanation,
+          style: textTheme.titleMedium,
+        ),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          l10n.connectHelp,
+          changing ? l10n.connectHelpChange : l10n.connectHelp,
           style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
         ),
         const SizedBox(height: AppSpacing.xl),

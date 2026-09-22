@@ -101,6 +101,16 @@
     "description": "Headline of the Connect empty state. Also used by the Backend row of Settings, where it explains why the row leads to Connect."
   },
 
+  "connectExplanationChange": "Cambiar el backend conectado",
+  "@connectExplanationChange": {
+    "description": "Headline of the Connect form when an address is already stored, reached from Settings > Backend or from 'Cambiar dirección'. It replaces connectExplanation, which says no backend is connected and is only true on a cold first launch: showing it here contradicted both the prefilled address field and the 'Conectado' card on the same screen. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."
+  },
+
+  "connectHelpChange": "Al conectar otra dirección se descartan las entidades y los datos guardados del backend anterior.",
+  "@connectHelpChange": {
+    "description": "Secondary line under connectExplanationChange. It states what connect() in connection_controller.dart actually does on an address change — clearing the previous backend's registry and read caches — because that is the one consequence worth knowing before confirming, and repeating connectHelp's 'se puede cambiar' here would say nothing new. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."
+  },
+
   "connectHelp": "La dirección del backend se ingresa una vez, y se puede cambiar cuando haga falta.",
   "@connectHelp": {
     "description": "Secondary line under the Connect headline. It keeps the reassurance that setup is a single step, while saying plainly that the address is not locked in: the screen is reached again from Settings > Backend, and connect() in connection_controller.dart handles an address change by clearing the previous backend's registry and read caches before rediscovering. The previous wording, 'se ingresa una sola vez', read as irreversible and discouraged exactly the thing the app supports. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."

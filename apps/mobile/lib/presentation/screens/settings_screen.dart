@@ -30,6 +30,8 @@ class SettingsScreen extends StatelessWidget {
     // The same mode the conversation surface reads: one shared object from the
     // composition root, so the switch and the turns cannot disagree.
     final technicalMode = AppScope.of(context).technicalMode;
+    // The same connection state Connect edits, for the same reason.
+    final connection = AppScope.of(context).connection;
 
     return AppBackground(
       child: Scaffold(
@@ -65,12 +67,25 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               const Divider(),
-              ListTile(
-                leading: const Icon(Icons.dns_outlined),
-                title: Text(l10n.settingsBackendLabel),
-                subtitle: Text(l10n.connectExplanation),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.connect),
+              ListenableBuilder(
+                // The row follows the connection, so it cannot keep announcing
+                // an empty state after one is stored — or the stored address
+                // after it changes.
+                listenable: connection,
+                builder: (context, _) => ListTile(
+                  leading: const Icon(Icons.dns_outlined),
+                  title: Text(l10n.settingsBackendLabel),
+                  // The address itself, once there is one: it is the answer to
+                  // "which backend is this?", and it needs no copy around it.
+                  // `connectExplanation` stays for the one case it describes
+                  // truthfully — nothing stored yet.
+                  subtitle: Text(
+                    connection.address?.display ?? l10n.connectExplanation,
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () =>
+                      Navigator.of(context).pushNamed(AppRoutes.connect),
+                ),
               ),
             ],
           ),
