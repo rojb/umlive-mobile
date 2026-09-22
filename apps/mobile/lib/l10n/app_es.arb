@@ -101,9 +101,9 @@
     "description": "Headline of the Connect empty state. Also used by the Backend row of Settings, where it explains why the row leads to Connect."
   },
 
-  "connectHelp": "La dirección del backend se ingresa una sola vez.",
+  "connectHelp": "La dirección del backend se ingresa una vez, y se puede cambiar cuando haga falta.",
   "@connectHelp": {
-    "description": "Secondary line under the Connect headline. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."
+    "description": "Secondary line under the Connect headline. It keeps the reassurance that setup is a single step, while saying plainly that the address is not locked in: the screen is reached again from Settings > Backend, and connect() in connection_controller.dart handles an address change by clearing the previous backend's registry and read caches before rediscovering. The previous wording, 'se ingresa una sola vez', read as irreversible and discouraged exactly the thing the app supports. Impersonal on purpose: the copy is Bolivian-neutral, so it avoids tuteo and voseo."
   },
 
   "connectFieldLabel": "Dirección del backend",
