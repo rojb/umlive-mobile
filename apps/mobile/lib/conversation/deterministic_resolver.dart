@@ -45,6 +45,7 @@ import 'field_value.dart';
 import 'operation_executor.dart';
 import 'operation_resolver.dart';
 import 'pending_write.dart';
+import 'reference_expander.dart';
 import 'spanish_language.dart';
 import 'turn.dart';
 
@@ -375,7 +376,7 @@ class DeterministicOperationResolver implements OperationResolver {
     // records underneath that number would answer a question nobody asked.
     // The collection this number was computed from still reaches the log and
     // the evidence through `count` above; only the cards are withheld.
-    final turnResult = plan.intent == _Intent.count
+    var turnResult = plan.intent == _Intent.count
         ? null
         : _turnResult(
             body: body,
@@ -383,6 +384,31 @@ class DeterministicOperationResolver implements OperationResolver {
             fields: entity.readableFields,
             fromCache: cacheAge != null,
           );
+
+    // Reference expansion runs after the executor stack has already settled
+    // this read, never inside it (design decision in
+    // `odd/tasks/reference-expansion-on-reads.md`): the records are already
+    // built above, and this only decorates the shape a card renders. A
+    // backend with no inferable reference costs one cheap check inside
+    // `expandReferences` and never issues a call.
+    final pendingResult = turnResult;
+    if (pendingResult != null && pendingResult.records.isNotEmpty) {
+      final referenceLabels = await expandReferences(
+        records: pendingResult.records,
+        fields: pendingResult.fields,
+        registry: registry,
+        executor: executor,
+        l10n: l10n,
+      );
+      if (referenceLabels.isNotEmpty) {
+        turnResult = TurnResult(
+          records: pendingResult.records,
+          fields: pendingResult.fields,
+          fromCache: pendingResult.fromCache,
+          referenceLabels: referenceLabels,
+        );
+      }
+    }
 
     return _finish(
       utteranceLength: length,

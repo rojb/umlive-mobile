@@ -83,6 +83,7 @@ class RecordCards extends StatelessWidget {
           _RecordCard(
             record: records[index],
             fields: result.fields,
+            referenceLabels: result.referenceLabels,
             position: index + 1,
             total: shown,
           ),
@@ -139,6 +140,7 @@ class _RecordCard extends StatelessWidget {
   const _RecordCard({
     required this.record,
     required this.fields,
+    required this.referenceLabels,
     required this.position,
     required this.total,
   });
@@ -148,6 +150,13 @@ class _RecordCard extends StatelessWidget {
 
   /// The entity's readable fields, in response-schema order.
   final List<FieldDescriptor> fields;
+
+  /// [TurnResult.referenceLabels]: the labels reference expansion resolved
+  /// for this read, keyed `'<fieldName>:<idValue>'` (`FR-ME03`). A field/id
+  /// pair this map does not carry — because the field is not an inferred
+  /// reference, or its fetch failed — falls back to the raw value exactly as
+  /// it rendered before this feature.
+  final Map<String, String> referenceLabels;
 
   /// This card's position in the group, counting from one.
   final int position;
@@ -171,10 +180,19 @@ class _RecordCard extends StatelessWidget {
       // than no row at all.
       if (value is Map) continue;
 
+      // A field reference expansion resolved (`FR-ME03`) shows the
+      // referenced record's own label instead of the bare foreign key, with
+      // its id still visible inside that label. The row's own label stays the
+      // schema's field name either way (`clienteId`, never an invented
+      // `cliente`) — only the value column changes.
+      final referenceLabel = value == null
+          ? null
+          : referenceLabels['${field.name}:$value'];
+
       rows.add(
         _FieldRow(
           label: field.name,
-          value: _valueText(value, l10n),
+          value: referenceLabel ?? _valueText(value, l10n),
           // An absent key and a `null` are both "no value" and share the muted
           // treatment, so the card reads the same whichever the backend sent.
           hasValue: value != null,

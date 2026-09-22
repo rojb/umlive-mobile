@@ -720,6 +720,39 @@
     }
   },
 
+  "recordReferenceValue": "{label} ({id})",
+  "@recordReferenceValue": {
+    "description": "T6, FR-ME03, reference-expansion-on-reads (mirror image of FR-MC06's name-to-id direction for writes): the value column of a foreign-key row — clienteId, for example — once the referenced record was fetched and it carries a readable string field to show. The id is deliberately kept visible next to that field's value, formatted through recordReferenceIdSuffix, so the row is never ambiguous about which record it names: two customers named the same way still read apart. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+
+  "recordReferenceValueUnnamed": "{id}",
+  "@recordReferenceValueUnnamed": {
+    "description": "T6, FR-ME03, reference-expansion-on-reads: the value column of a foreign-key row whose referenced record was fetched but carries no readable string field to show — there is nothing to label it with beyond its own identity. The id is formatted through recordReferenceIdSuffix, the same as recordReferenceValue's. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+
+  "recordReferenceIdSuffix": "#{id}",
+  "@recordReferenceIdSuffix": {
+    "description": "T6, FR-ME03, reference-expansion-on-reads: how the referenced record's own id is spelled inside recordReferenceValue and recordReferenceValueUnnamed. Kept as its own string, rather than a literal '#' inside the other two, because the '#' is presentation and not a value the app may hard-code outside l10n. Neutral register, no tuteo or voseo.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+
   "conversationNotUnderstoodNoEntity": "No reconocí ninguna entidad conocida en esa indicación. Conozco: {entities}.",
   "@conversationNotUnderstoodNoEntity": {
     "description": "T12: refusal when no entity the registry knows was named. The vocabulary comes from the registry (FR-MC07), which is why it can name what it does know instead of only what it missed. Neutral register, no tuteo or voseo.",

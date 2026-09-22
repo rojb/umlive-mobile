@@ -126,6 +126,7 @@ final class TurnResult {
     required this.records,
     required this.fields,
     this.fromCache = false,
+    this.referenceLabels = const <String, String>{},
   });
 
   /// Zero or more records, each a decoded JSON object.
@@ -137,6 +138,18 @@ final class TurnResult {
   /// True when the answer came from the read cache (`FR-MD05`). The age is
   /// carried by the turn's sentence, so the cards do not repeat it.
   final bool fromCache;
+
+  /// Foreign-key fields this read resolved into the referenced record's own
+  /// label, by name convention (`FR-ME03`, `reference_hint.dart`), keyed
+  /// `'<fieldName>:<idValue>'` — a given field always points at one entity, so
+  /// the field name alone disambiguates the key.
+  ///
+  /// Defaults to empty so every existing [TurnResult] construction keeps
+  /// compiling. It stays empty when [fields] carries no inferable reference,
+  /// and a field/id pair is simply absent from it when the referenced record
+  /// could not be fetched — `record_cards.dart` falls back to the raw id for
+  /// any key this map does not carry (`reference_expander.dart`).
+  final Map<String, String> referenceLabels;
 }
 
 /// One turn in the conversation, spoken by either party.
