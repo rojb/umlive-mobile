@@ -557,6 +557,59 @@ class ConnectionController extends ChangeNotifier with WidgetsBindingObserver {
     return canProceed;
   }
 
+  /// The outstanding queue this profile would lose by forgetting it — the
+  /// count the confirmation dialog of `settings_screen.dart` names.
+  ///
+  /// Reads the repository fresh on every call rather than caching a figure on
+  /// this controller: the caller reads it at the moment the dialog opens, and
+  /// an outbox item enqueued a second earlier must already be counted.
+  Future<int> outstandingOperationCount() async {
+    final profileId = _profile?.id;
+    if (profileId == null) return 0;
+    final items = await _outbox.outstanding(profileId);
+    return items.length;
+  }
+
+  /// Forgets the connected backend entirely (`FR-MG01`): the stored profile,
+  /// its cached registry, its cached reads and its outstanding queue, and
+  /// resets this controller to the values it starts a fresh launch with.
+  ///
+  /// The total counterpart of [connect]'s address-change branch: an address
+  /// change keeps the profile row and drops only what belonged to the old
+  /// address, while forgetting has nothing left to keep, because the profile
+  /// itself is what is being forgotten. The re-probe cadence is stopped before
+  /// anything else, so no fired timer can read the state mid-reset and put it
+  /// back — a cadence still asking an address the app has just forgotten would
+  /// resurrect the connection it was told to drop.
+  Future<void> forget() async {
+    _cancelReprobe();
+
+    final profileId = _profile?.id;
+    if (profileId != null) {
+      await _registry.clear(profileId);
+      await _readCache.clear(profileId);
+      await _outbox.clear(profileId);
+    }
+    await _profiles.forgetActive();
+
+    _profile = null;
+    _address = null;
+    _token = null;
+    _apiRegistry = null;
+    _cachedRegistry = null;
+    _registryFromCache = false;
+    _reachability = ReachabilityState.neverConnected;
+    _lastProbe = null;
+    _registryChange = null;
+
+    logEvent('profile', {
+      'action': 'forget',
+      'id': profileId,
+      'result': 'cleared',
+    });
+    notifyListeners();
+  }
+
   /// Cancels the probe in flight. Nothing else is touched: the last confirmed
   /// state stays on screen.
   void cancel() {

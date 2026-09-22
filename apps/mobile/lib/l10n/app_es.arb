@@ -309,6 +309,46 @@
     "description": "Label of the row that navigates to the Connect screen."
   },
 
+  "settingsForgetBackendLabel": "Olvidar este backend",
+  "@settingsForgetBackendLabel": {
+    "description": "forget-connected-backend, FR-MG01: label of the destructive row under Backend that returns the app to the state it had before its first connection. It sits in the error colour and never fires on its own tap alone; settingsForgetBackendConfirmTitle asks first. Impersonal register: no tuteo and no voseo, and no wording that suggests a session or a logout, because the app has no session and forgetting protects nothing (odd/tasks/forget-connected-backend.md, 'Why it matters')."
+  },
+
+  "settingsForgetBackendHelp": "Borra la dirección, el token y todo lo guardado de este backend.",
+  "@settingsForgetBackendHelp": {
+    "description": "forget-connected-backend, FR-MG01: secondary line under settingsForgetBackendLabel, naming what the action clears before it is even tapped: the address and the token in secure storage, plus the registry, the read cache and the outbox rows in SQLite (docs/architecture.md §5). Impersonal register: no tuteo and no voseo."
+  },
+
+  "settingsForgetBackendConfirmTitle": "¿Olvidar este backend?",
+  "@settingsForgetBackendConfirmTitle": {
+    "description": "forget-connected-backend, FR-MG01: the question asked before the connected backend is forgotten, in the same shape queueCancelConfirmTitle asks before a queued item is discarded — a destructive action is confirmed exactly as a destructive voice command is. Impersonal register: no second person, no tuteo and no voseo."
+  },
+
+  "settingsForgetBackendConfirmBody": "Se van a borrar la dirección, el token y todo lo guardado de este backend. La acción no se puede deshacer.",
+  "@settingsForgetBackendConfirmBody": {
+    "description": "forget-connected-backend, FR-MG01: body of the confirmation when the outbox has nothing outstanding, read at the moment the dialog opens (ProfileRepository, RegistryRepository, ReadCacheRepository and OutboxRepository are all cleared). settingsForgetBackendConfirmBodyWithOutstanding is shown instead when there is queued work to name. Impersonal register: no tuteo and no voseo."
+  },
+
+  "settingsForgetBackendConfirmBodyWithOutstanding": "{count, plural, =1{Hay 1 operación pendiente que nunca se va a enviar.} other{Hay {count} operaciones pendientes que nunca se van a enviar.}} También se van a borrar la dirección, el token y todo lo guardado de este backend. La acción no se puede deshacer.",
+  "@settingsForgetBackendConfirmBodyWithOutstanding": {
+    "description": "forget-connected-backend, FR-MG01: body of the confirmation when OutboxRepository.outstanding reports queued work for the active profile — deliberately outstanding and not pending, which excludes the item a drain has already taken. States plainly how many operations will never be sent before naming the rest of what is lost, because that is the one consequence a plain 'borrar' would hide. The count is read fresh when the dialog opens, never assumed. Impersonal register: no tuteo and no voseo.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "settingsForgetBackendConfirmAction": "Olvidar backend",
+  "@settingsForgetBackendConfirmAction": {
+    "description": "forget-connected-backend, FR-MG01: the confirming control of the dialog, labelled by what it does rather than by 'Aceptar' — the same rule queueDiscardAction follows for a queue item. Impersonal register: no tuteo and no voseo."
+  },
+
+  "settingsForgetBackendCancelAction": "Cancelar",
+  "@settingsForgetBackendCancelAction": {
+    "description": "forget-connected-backend, FR-MG01: the non-destructive choice of the dialog, keeping the connection exactly as it was. Same wording as connectCancel; kept as its own key because each dialog's copy is its own entry in this file."
+  },
+
   "connectTokenLabel": "Token compartido (opcional)",
   "@connectTokenLabel": {
     "description": "Label of the bearer token field. It is only revealed behind the advanced affordance (UX spec, Pass 2: the token is secondary, needed once and typed rarely)."

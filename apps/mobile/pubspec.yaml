@@ -85,6 +85,16 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # forget-connected-backend (T5): the platform-interface half of
+  # `flutter_secure_storage` above, imported directly so
+  # `profile_repository_test.dart` can install `TestFlutterSecureStoragePlatform`
+  # (shipped by `flutter_secure_storage` itself for exactly this purpose) as
+  # `FlutterSecureStoragePlatform.instance` and run `ProfileRepository` against
+  # an in-memory store instead of a platform channel, which does not exist on
+  # the Dart VM tests run under. Already a transitive dependency; pinned here so
+  # `flutter analyze` does not flag the import as undeclared.
+  flutter_secure_storage_platform_interface: ^2.1.1
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

@@ -142,6 +142,30 @@ class ProfileRepository {
     logEvent('profile', {'action': 'touch', 'id': id, 'at': now});
   }
 
+  /// Forgets the active connection entirely (`FR-MG01`): the three secure-
+  /// storage keys and the `profile` row itself.
+  ///
+  /// There is deliberately no soft variant. `save` is the only other writer of
+  /// these rows and it always leaves something behind — an address, a token or
+  /// both; this is the one method that leaves nothing, which is what makes the
+  /// app reach the state it had before its first connection. Tolerates a
+  /// missing active id: forgetting an app that never connected, or forgetting
+  /// twice, does nothing rather than throwing.
+  Future<void> forgetActive() async {
+    final id = await secureStorage.read(key: _activeIdKey);
+    if (id == null || id.isEmpty) {
+      logEvent('profile', {'action': 'forget', 'result': 'nothing_stored'});
+      return;
+    }
+
+    await secureStorage.delete(key: _activeIdKey);
+    await secureStorage.delete(key: _baseUrlKey(id));
+    await secureStorage.delete(key: _tokenKey(id));
+    await database.delete('profile', where: 'id = ?', whereArgs: <Object?>[id]);
+
+    logEvent('profile', {'action': 'forget', 'id': id, 'result': 'cleared'});
+  }
+
   Future<Map<String, Object?>?> _activeRow() async {
     final id = await secureStorage.read(key: _activeIdKey);
     if (id == null || id.isEmpty) return null;
